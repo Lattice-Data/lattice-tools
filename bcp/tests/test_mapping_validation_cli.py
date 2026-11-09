@@ -904,13 +904,22 @@ def test_cli_sci_raw_missing_trimmer_failure_codes_fails(
     assert "VERDICT: FAIL" in captured.out
 
 
-def test_cli_10x_raw_missing_per_tail_sample_fastq_fails(
+def test_cli_10x_raw_missing_per_tail_sample_fastq_passes(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """Dropping the R1 ``_sample.fastq.gz`` should fail the 10x raw CLI run."""
+    """TOOLS-383: dropping the ``_sample.fastq.gz`` files does not fail the run.
+
+    The Ultima conversion step writes them for some tails and not others, and
+    nothing downstream reads them.
+    """
     mapping_path = _write_temp_mapping(
         tmp_path,
-        _tenx_fastq_cli_mapping(omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}),
+        _tenx_fastq_cli_mapping(
+            omit_per_tail={
+                ("S1_L001_R1_001", "_sample.fastq.gz"),
+                ("S1_L001_R2_001", "_sample.fastq.gz"),
+            }
+        ),
     )
 
     argv = [
@@ -929,11 +938,10 @@ def test_cli_10x_raw_missing_per_tail_sample_fastq_fails(
     with pytest.raises(SystemExit) as excinfo:
         mapping_validation.main()
 
-    assert excinfo.value.code == 1
     captured = capsys.readouterr()
-    assert "missing required 10x FASTQ per-tail artifacts: sample_fastq" in captured.out
-    assert "10x FASTQ completeness errors" in captured.out
-    assert "VERDICT: FAIL" in captured.out
+    assert excinfo.value.code == 0, captured.out
+    assert "sample_fastq" not in captured.out
+    assert "VERDICT: PASS" in captured.out
 
 
 def test_cli_unsupported_mode_fails(tmp_path: Path, monkeypatch, capsys) -> None:

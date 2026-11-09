@@ -3608,19 +3608,80 @@ def test_validate_10x_raw_fastq_completeness_missing_per_prefix_metadata() -> No
     assert missing
 
 
-def test_validate_10x_raw_fastq_completeness_missing_per_tail_sample_fastq() -> None:
-    """Dropping the R1 ``_sample.fastq.gz`` should fire a per-tail completeness error."""
+@pytest.mark.parametrize("provider", ["novogene", "psomagen"])
+def test_validate_10x_raw_fastq_completeness_without_sample_fastq_passes(
+    provider: str,
+) -> None:
+    """TOOLS-383: tails with every read FASTQ but no ``_sample.fastq.gz`` pass.
+
+    The Ultima conversion step writes ``_sample.fastq.gz`` for some tails and
+    not others, and nothing downstream reads it. Its absence must not be an
+    error or a warning, for either provider.
+    """
     rows = _tenx_fastq_complete_rows(
-        omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}
+        omit_per_tail={
+            ("S1_L001_R1_001", "_sample.fastq.gz"),
+            ("S1_L001_R2_001", "_sample.fastq.gz"),
+        }
     )
+    if provider == "psomagen":
+        rows = [
+            MappingRow(
+                r.s3_path.replace(
+                    "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/",
+                    "s3://czi-psomagen/project-scaling-alpha/AN00000001/",
+                ),
+                r.local_path,
+                r.line_num,
+            )
+            for r in rows
+        ]
+    res = validate_10x_raw_fastq_completeness(provider, rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["missing_per_tail"] == {}
+    assert res["tails_checked"] == 2
+
+
+def test_validate_10x_raw_fastq_completeness_sample_fastq_without_read_fastq_fails() -> (
+    None
+):
+    """Relaxing ``sample_fastq`` does not relax the read FASTQ it accompanies.
+
+    A tail that ships only ``_sample.fastq.gz`` (plus its .csv/.json) is still
+    missing the read FASTQ, which is what analysis needs.
+    """
+    rows = _tenx_fastq_complete_rows(omit_per_tail={("S1_L001_R1_001", ".fastq.gz")})
     res = validate_10x_raw_fastq_completeness("novogene", rows)
     missing = [
         e
         for e in res["errors"]
-        if e["type"] == "missing_sample_artifacts"
-        and "sample_fastq" in e.get("missing", [])
+        if e["type"] == "missing_sample_artifacts" and "S1_L001_R1_001" in e["s3_path"]
     ]
-    assert missing
+    assert len(missing) == 1
+    assert missing[0]["missing"] == ["fastq"]
+
+
+@pytest.mark.parametrize(
+    "omitted, artifact",
+    [(".csv", "fastq_csv"), (".json", "fastq_json")],
+)
+def test_validate_10x_raw_fastq_completeness_per_tail_metadata_still_required(
+    omitted: str, artifact: str
+) -> None:
+    """The per-tail .csv and .json remain required after TOOLS-383."""
+    rows = _tenx_fastq_complete_rows(omit_per_tail={("S1_L001_R2_001", omitted)})
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert [e["missing"] for e in res["errors"]] == [[artifact]]
+
+
+def test_validate_10x_raw_fastq_completeness_sample_fastq_still_recognised() -> None:
+    """A present ``_sample.fastq.gz`` is classified, not reported as unexpected."""
+    rows = _tenx_fastq_complete_rows()
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert res["errors"] == []
+    # 7 per-prefix + 2 tails x 4 per-tail rows, sample FASTQs included.
+    assert res["matched"] == 15
 
 
 def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
