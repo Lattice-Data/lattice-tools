@@ -779,6 +779,22 @@ class TestIlluminaGather:
         data = self._gather(*self._delivery())
         assert data.illumina_planned_reads == {FC: ["R1", "I1", "I2", "R2"]}
 
+    @pytest.mark.parametrize("modality", ["VDJ", "gex"])
+    def test_an_unrecognized_modality_is_a_wrong_assay_error(self, modality):
+        keys, contents = self._delivery()
+        bad = [
+            f"{RAW}/{FC}_G1_{modality}_S9_L001_{r}_001.fastq.gz" for r in ("R1", "R2")
+        ]
+        data = self._gather(keys + bad, contents)
+        assert data.gathering_errors == [
+            f"WRONG ASSAY: unrecognized Illumina modality {f}" for f in bad
+        ]
+
+    def test_a_group_with_only_an_unrecognized_modality_still_errors(self):
+        keys = flowcell_files() + [f"{RAW}/{FC}_G1_gex_S1_L001_R1_001.fastq.gz"]
+        data = self._gather(keys, {f"{RAW}/{FC}_RunParameters.xml": DUAL_INDEX_XML})
+        assert any("WRONG ASSAY" in e for e in data.gathering_errors)
+
     def test_a_well_formed_delivery_raises_no_assay_or_group_errors(self):
         # The regression guard for the suppressed Ultima fallback: without it
         # every flowcell run file parses as a library with an invented assay.
@@ -818,6 +834,20 @@ class TestIlluminaGather:
         data = self._gather(keys, {})
         warnings = [w for w in data.gathering_warnings if "RUN PARAMETERS MISSING" in w]
         assert len(warnings) == 3
+
+    def test_missing_xml_on_a_shared_flowcell_is_warned_once(self):
+        # The usual Illumina layout: every GroupID on the same flowcell.
+        keys = []
+        for group in ("G1", "G2", "G3", "G4", "G5"):
+            raw = f"testproj/ORD01/{group}/raw"
+            keys += flowcell_files(flowcell=FC, raw_dir=raw) + fastqs(
+                raw_dir=raw, group=group, flowcell=FC, sidecars=False
+            )
+            keys.remove(f"{raw}/{FC}_RunParameters.xml")
+        data = self._gather(keys, {})
+        warnings = [w for w in data.gathering_warnings if "RUN PARAMETERS MISSING" in w]
+        assert len(warnings) == 1
+        assert FC in warnings[0]
 
     def test_two_flowcells_each_get_an_entry(self):
         other = "22ABCDEF9"

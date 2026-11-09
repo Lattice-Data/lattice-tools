@@ -896,7 +896,9 @@ Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
   `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
   independently.
   `{Assay}` is one of GEX, CRI, ATAC, viral_ORF, ADT, HTO, ADT_HTO, BCR or TCR — Illumina's own
-  list, separate from the Ultima assay list.
+  list, separate from the Ultima assay list, and case-sensitive. A fastq shaped like this but with
+  any other `{Assay}` (`VDJ`, a lowercase `gex`) is a `WRONG ASSAY: unrecognized Illumina modality`
+  error; it is also listed in `raw_extra.txt`, and is left out of every other check.
 
 **Which reads are required is read from `{FC}_RunParameters.xml`**, not assumed: its `<PlannedReads>`
 block maps `Read1→R1`, `Read2→R2`, `Index1→I1`, `Index2→I2`, so a run with no index reads requires

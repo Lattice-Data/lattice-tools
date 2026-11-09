@@ -49,8 +49,8 @@ from qa_mods import (
 )
 from qa_constants import (
     ILLUMINA_DEFAULT_PLANNED_READS,
+    ILLUMINA_FASTQ_LOOSE_RE,
     ILLUMINA_FASTQ_RE,
-    ILLUMINA_MODALITIES,
     ILLUMINA_RUN_PARAMETERS_SUFFIX,
     SEAHUB_FAIL_SUFFIXES,
     SEAHUB_PLATE_SIZES,
@@ -145,6 +145,10 @@ class QADataGatherer:
         # Collected during the walk and fetched as one batch afterwards; see
         # _download_seahub_trim_fail_batch.
         self._seahub_trim_fail_pending: list[str] = []
+        # Illumina flowcells already given a RUN PARAMETERS MISSING warning. A
+        # flowcell is usually shared by every GroupID in an order, and each
+        # GroupID is gathered separately, so without this it warned once per group.
+        self._run_parameters_warned: set[str] = set()
         s3_fs_kwargs: dict[str, Any] = {}
         region = getattr(getattr(s3_client, "meta", None), "region_name", None)
         if region:
@@ -551,10 +555,14 @@ class QADataGatherer:
                 continue
             self._data.illumina_planned_reads[flowcell] = reads
 
-        # This group's flowcells only: this runs once per GroupID, and checking
-        # every flowcell seen so far repeated the same warning for each group.
+        # This group's flowcells only, and each flowcell once per order: this
+        # runs once per GroupID, and flowcells are normally shared across groups.
         for flowcell in sorted(group_flowcells):
-            if flowcell not in self._data.illumina_planned_reads:
+            if (
+                flowcell not in self._data.illumina_planned_reads
+                and flowcell not in self._run_parameters_warned
+            ):
+                self._run_parameters_warned.add(flowcell)
                 self._data.gathering_warnings.append(
                     f"RUN PARAMETERS MISSING: no readable "
                     f"{flowcell}{ILLUMINA_RUN_PARAMETERS_SUFFIX} for flowcell "
@@ -592,9 +600,10 @@ class QADataGatherer:
                 allowed_assays: tuple[str, ...] | list[str] = SEAHUB_SUBLIBRARY_TYPES
                 assay_is_wrong = assay is not None and assay not in allowed_assays
             elif self.sequencing_type == "Illumina":
-                # Illumina carries its own modality list (ADT, HTO, BCR, TCR...),
-                # which valid_assays does not.
-                assay_is_wrong = assay not in ILLUMINA_MODALITIES
+                # ILLUMINA_FASTQ_RE only matches ILLUMINA_MODALITIES, so a
+                # parsed name is always right; an unknown modality is caught
+                # below, where the name fails to parse.
+                assay_is_wrong = False
             else:
                 assay_is_wrong = assay not in valid_assays
             if assay_is_wrong:
@@ -613,6 +622,12 @@ class QADataGatherer:
                     fl[group] = {}
                 assay_key = assay if assay is not None else SEAHUB_UNTYPED_LABEL
                 fl[group].setdefault(assay_key, []).append(rf.split("/")[-1])
+        elif self.sequencing_type == "Illumina" and ILLUMINA_FASTQ_LOOSE_RE.match(
+            rf.split("/")[-1]
+        ):
+            self._data.gathering_errors.append(
+                f"WRONG ASSAY: unrecognized Illumina modality {rf}"
+            )
 
         if self._should_download_metadata_json(rf):
             self._download_metadata_json(rf)

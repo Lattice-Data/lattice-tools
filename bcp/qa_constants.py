@@ -400,6 +400,15 @@ ILLUMINA_FASTQ_RE = re.compile(
     r"\.fastq\.gz$"
 )
 
+# Shaped like an Illumina fastq but with any modality token. A name that matches
+# this and not ILLUMINA_FASTQ_RE has a modality QA does not recognise (VDJ, a
+# lowercase gex, ...); without this it would parse as nothing and appear only
+# in raw_extra.txt. No modality is extracted: GroupIDs may contain underscores,
+# so where the group ends and the modality begins is ambiguous.
+ILLUMINA_FASTQ_LOOSE_RE = re.compile(
+    r"^[A-Za-z0-9]+_.+_S\d+_L\d{3}_(?:R[123]|I[12])_\d+\.fastq\.gz$"
+)
+
 # <Read ReadName="..."> values in RunParameters.xml -> the token that appears in
 # the fastq filename.  Names outside this map are ignored rather than rejected:
 # an unfamiliar planned read is not a reason to fail a delivery.
