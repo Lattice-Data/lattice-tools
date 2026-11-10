@@ -528,3 +528,63 @@ def test_mapping_validation_e2e_10x_processed_multiome_incomplete_fails(
     out = capsys.readouterr().out
     assert "VERDICT: FAIL" in out
     assert "multiome" in out.lower()
+
+
+@pytest.mark.parametrize(
+    "mapping_name,sif_name,provider",
+    [
+        ("psomagen_10x_raw_valid.csv", "psomagen_10x_sif.csv", "psomagen"),
+        ("novogene_10x_raw_valid.csv", "novogene_10x_sif.csv", "novogene"),
+    ],
+)
+def test_mapping_validation_e2e_10x_raw_without_sample_fastq_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mapping_name: str,
+    sif_name: str,
+    provider: str,
+) -> None:
+    """TOOLS-383: a 10x raw mapping with every read FASTQ but no
+    ``_sample.fastq.gz`` rows passes the whole CLI, not just completeness.
+
+    The Ultima conversion step writes ``_sample.fastq.gz`` for some tails and
+    not others; a mapping without it is not faulty and must not ask the CRO to
+    resend.
+    """
+    lines = (
+        (FIXTURES_DIR / "mappings" / mapping_name)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    kept = [ln for ln in lines if "_sample.fastq.gz" not in ln]
+    assert len(kept) < len(lines), "fixture should start with sample FASTQ rows"
+    mapping_path = tmp_path / mapping_name
+    mapping_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    sif_path = tmp_path / "sif.xlsx"
+    pd.read_csv(FIXTURES_DIR / "sif" / sif_name).to_excel(sif_path, index=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mapping_validation",
+            "--mapping",
+            str(mapping_path),
+            "--sif",
+            str(sif_path),
+            "--provider",
+            provider,
+            "--data",
+            "raw",
+            "--assay",
+            "10x",
+        ],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 0, out
+    assert "VERDICT: PASS" in out
+    assert "sample_fastq" not in out

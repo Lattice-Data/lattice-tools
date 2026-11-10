@@ -249,14 +249,10 @@ raw_expected = {
         "_S1_L001_R1_001.fastq.gz",
         "_S1_L001_R1_001.fastq.gz-metadata.json",
         "_S1_L001_R1_001.json",
-        "_S1_L001_R1_001_sample.fastq.gz",
-        "_S1_L001_R1_001_sample.fastq.gz-metadata.json",
         "_S1_L001_R2_001.csv",
         "_S1_L001_R2_001.fastq.gz",
         "_S1_L001_R2_001.fastq.gz-metadata.json",
         "_S1_L001_R2_001.json",
-        "_S1_L001_R2_001_sample.fastq.gz",
-        "_S1_L001_R2_001_sample.fastq.gz-metadata.json",
     ],
     "10x_viral_ORF": [
         ".csv",
@@ -290,6 +286,14 @@ raw_expected = {
 
 raw_optional = {
     "10x": [
+        # The Ultima conversion/trimming step writes ``_sample.fastq.gz`` for
+        # some tails and not others, and nothing downstream reads it, so its
+        # absence is not a delivery defect. mapping_validation applies the same
+        # rule (TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS in sop_artifacts).
+        "_S1_L001_R1_001_sample.fastq.gz",
+        "_S1_L001_R1_001_sample.fastq.gz-metadata.json",
+        "_S1_L001_R2_001_sample.fastq.gz",
+        "_S1_L001_R2_001_sample.fastq.gz-metadata.json",
         ".scRNA.applicationQC.h5",
         ".scRNA.applicationQC.html",
         "_Log.final.out",

@@ -119,7 +119,8 @@ BASELINES = {
     "10x": (
         GOOD_10X_BASE,
         ("439047", "G1", "GEX", "Z0273", "CAGTCAGTTGCAGAT"),
-        20,
+        # 16 since TOOLS-383 moved the four _sample.fastq.gz endings to optional.
+        16,
     ),
     "10x_cram": (
         "proj/NVUS01/LeS1867W11/raw/442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT",
@@ -226,16 +227,17 @@ class TestNonSeahubAssayBaseline:
             "_S1_L001_R1_001.fastq.gz",
             "_S1_L001_R1_001.fastq.gz-metadata.json",
             "_S1_L001_R1_001.json",
-            "_S1_L001_R1_001_sample.fastq.gz",
-            "_S1_L001_R1_001_sample.fastq.gz-metadata.json",
             "_S1_L001_R2_001.csv",
             "_S1_L001_R2_001.fastq.gz",
             "_S1_L001_R2_001.fastq.gz-metadata.json",
             "_S1_L001_R2_001.json",
+        ]
+        # TOOLS-383: the Ultima sample FASTQs are optional, not expected.
+        assert raw_optional["10x"] == [
+            "_S1_L001_R1_001_sample.fastq.gz",
+            "_S1_L001_R1_001_sample.fastq.gz-metadata.json",
             "_S1_L001_R2_001_sample.fastq.gz",
             "_S1_L001_R2_001_sample.fastq.gz-metadata.json",
-        ]
-        assert raw_optional["10x"] == [
             ".scRNA.applicationQC.h5",
             ".scRNA.applicationQC.html",
             "_Log.final.out",
