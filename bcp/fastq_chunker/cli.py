@@ -422,6 +422,10 @@ def cmd_test_data(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # a long run is usually redirected to a log under nohup; without line
+    # buffering its progress lines only appear when the run ends
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     try:
         return args.func(args)
     except (PlanError, RunError) as e:
