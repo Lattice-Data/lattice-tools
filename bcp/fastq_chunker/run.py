@@ -96,7 +96,8 @@ class RunOptions:
     force: bool = False
     dry_run: bool = False
     copy_singletons: bool = False
-    copy_workers: int = 8
+    copy_workers: int = 4
+    copy_parts: int = s3io.DEFAULT_COPY_PARTS
     log_dir: Path = Path("logs")
     manifest: Path = Path("run_manifest.tsv")
     decompressor: str = "pigz"
@@ -422,7 +423,12 @@ def copy_one(fs, plan: Plan, fp: FilePlan, opts: RunOptions, s3_client) -> Chunk
             problem, checked = check_copy(fs, target, fp, s3_client)
             if problem is None:
                 return result("skipped", checked)
-        fs.copy(fp.file.s3_uri, target)
+        if s3_client is not None and fp.file.s3_uri.startswith("s3://"):
+            s3io.managed_copy(
+                s3_client, fp.file.s3_uri, target, fp.file.size_bytes, opts.copy_parts
+            )
+        else:
+            fs.copy(fp.file.s3_uri, target)
         problem, checked = check_copy(fs, target, fp, s3_client)
     except Exception as e:  # one bad copy must not stop the others
         problem, checked = f"{type(e).__name__}: {e}", ""
@@ -439,11 +445,17 @@ def copy_one(fs, plan: Plan, fp: FilePlan, opts: RunOptions, s3_client) -> Chunk
 def copy_singletons(fs, plan: Plan, opts: RunOptions, out) -> list[ChunkResult]:
     """Server-side copy of every unsplit file into dst, several at once.
 
-    A file already in dst that passes the check is skipped; one that fails it
-    is copied again. A failed copy is removed and reported; the rest go on.
+    ``copy_workers`` files at a time, each as ``copy_parts`` parts in flight,
+    over one client whose pool holds a connection for every part. A file
+    already in dst that passes the check is skipped; one that fails it is
+    copied again. A failed copy is removed and reported; the rest go on.
     """
     todo = singleton_files(plan, opts)
-    s3_client = s3io.make_s3_client(opts.copy_workers) if s3io.is_s3(fs) else None
+    s3_client = (
+        s3io.make_s3_client(opts.copy_workers * opts.copy_parts)
+        if s3io.is_s3(fs)
+        else None
+    )
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=opts.copy_workers) as pool:
         futures = [pool.submit(copy_one, fs, plan, fp, opts, s3_client) for fp in todo]
@@ -461,6 +473,8 @@ def copy_singletons(fs, plan: Plan, opts: RunOptions, out) -> list[ChunkResult]:
 
 def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None) -> int:
     out = out or sys.stdout
+    if opts.copy_singletons and min(opts.copy_workers, opts.copy_parts) < 1:
+        raise RunError("--copy-workers and --copy-parts must be at least 1")
     files = plan.split_files()
     if opts.only:
         known = {fp.file.filename for _, fp in files} | {

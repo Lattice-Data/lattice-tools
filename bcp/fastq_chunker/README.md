@@ -78,7 +78,11 @@ the `--only ...` command to rerun is printed. If `split` produces a different
 number of chunks than the plan names, which is what a wrong portal `read_count`
 causes, the file is treated the same way. `--copy-singletons` server-side
 copies files that need no splitting into `--dst` as well, `--copy-workers`
-(default 8) at a time, and preflight then checks their sources too. Each copy
+files (default 4) at a time, and preflight then checks their sources too. On
+S3 each file of 64 MiB or more is copied as 128 MiB parts, `--copy-parts`
+(default 32) of them at once. One copy request moves only a few MB/s, so the
+parts are what make it fast: in the TOOLS-382 pilot a 13.4 GB file took 48
+minutes one part at a time and 2 minutes with 32 at once. Each copy
 is checked after it lands: its size must match the plan, and when S3 holds a
 full-object CRC64NVME for it and DB2 recorded one (`crc64nvme_base64`), the two
 must be equal. The manifest's `checked` column says which was compared

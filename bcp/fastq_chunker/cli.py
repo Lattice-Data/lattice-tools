@@ -139,8 +139,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--copy-workers",
         type=int,
-        default=8,
-        help="server-side copies at once (--copy-singletons)",
+        default=4,
+        help="files copied at once (--copy-singletons)",
+    )
+    r.add_argument(
+        "--copy-parts",
+        type=int,
+        default=s3io.DEFAULT_COPY_PARTS,
+        help="parts of one file copied at once (--copy-singletons, S3 only)",
     )
     r.add_argument(
         "--log-dir", type=Path, default=Path("logs"), help="one <stem>.log per file"
@@ -338,6 +344,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         copy_singletons=args.copy_singletons,
         copy_workers=args.copy_workers,
+        copy_parts=args.copy_parts,
         log_dir=args.log_dir,
         manifest=args.manifest,
         decompressor=args.decompressor,

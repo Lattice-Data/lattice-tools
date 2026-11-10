@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -319,3 +320,182 @@ def test_a_plan_written_before_crc64nvme_still_loads(tmp_path):
             del fp["file"]["crc64nvme"]
     (tmp_path / "old.json").write_text(json.dumps(d))
     assert load_plan(tmp_path / "old.json").groups[0].files[0].file.crc64nvme is None
+
+
+# --- S3 copies go through boto3's managed copy, parts in parallel ------------
+
+MIB = 2**20
+
+
+def test_copy_part_size_grows_to_stay_under_the_part_cap(monkeypatch):
+    monkeypatch.delenv(s3io.COPY_PART_ENV, raising=False)
+    assert s3io.copy_part_size(1) == s3io.COPY_PART
+    assert s3io.copy_part_size(s3io.COPY_PART * s3io.MAX_PARTS) == s3io.COPY_PART
+    huge = s3io.COPY_PART * s3io.MAX_PARTS + 1
+    part = s3io.copy_part_size(huge)
+    assert part > s3io.COPY_PART and -(-huge // part) <= s3io.MAX_PARTS
+    monkeypatch.setenv(s3io.COPY_PART_ENV, str(5 * MIB))
+    assert s3io.copy_part_size(1) == 5 * MIB
+
+
+class RecordingClient:
+    def __init__(self):
+        self.calls = []
+
+    def copy(self, source, bucket, key, ExtraArgs, Config):
+        self.calls.append((source, bucket, key, ExtraArgs, Config))
+
+
+def test_managed_copy_asks_for_crc64nvme_and_parallel_parts(monkeypatch):
+    monkeypatch.delenv(s3io.COPY_PART_ENV, raising=False)
+    client = RecordingClient()
+    s3io.managed_copy(client, "s3://src/a/b.fastq.gz", "s3://dst/p/b.fastq.gz", 10, 7)
+    [(source, bucket, key, extra, config)] = client.calls
+    assert source == {"Bucket": "src", "Key": "a/b.fastq.gz"}
+    assert (bucket, key) == ("dst", "p/b.fastq.gz")
+    assert extra == {"ChecksumAlgorithm": "CRC64NVME"}
+    assert config.max_concurrency == 7
+    assert config.multipart_chunksize == s3io.COPY_PART
+    assert config.multipart_threshold == s3io.COPY_THRESHOLD
+
+
+def test_copy_options_must_be_positive(tmp_path):
+    plan, _, _ = make_world(tmp_path, n_sets=1)
+    for kw in ({"copy_parts": 0}, {"copy_workers": 0}):
+        with pytest.raises(RunError, match="at least 1"):
+            run_plan(plan, opts(tmp_path, **kw), out=io.StringIO())
+
+
+def test_cli_passes_copy_parts_through(tmp_path, monkeypatch):
+    plan, _, _ = make_world(tmp_path, n_sets=1)
+    write_plan(plan, tmp_path / "plan.json")
+    seen = {}
+
+    def fake_run_plan(plan, opts, **kw):
+        seen["opts"] = opts
+        return 0
+
+    monkeypatch.setattr("fastq_chunker.cli.run_plan", fake_run_plan)
+    args = ["run", "--plan", str(tmp_path / "plan.json"), "--copy-singletons"]
+    assert main(args + ["--copy-parts", "5", "--copy-workers", "2"]) == 0
+    assert (seen["opts"].copy_parts, seen["opts"].copy_workers) == (5, 2)
+    assert main(args) == 0
+    assert seen["opts"].copy_parts == s3io.DEFAULT_COPY_PARTS
+    assert seen["opts"].copy_workers == 4
+
+
+@pytest.fixture(scope="module")
+def moto_s3():
+    pytest.importorskip("moto")
+    import socket
+
+    import boto3
+    from moto.server import ThreadedMotoServer
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = ThreadedMotoServer(ip_address="127.0.0.1", port=port)
+    server.start()
+    env = {
+        s3io.ENDPOINT_ENV: f"http://127.0.0.1:{port}",
+        s3io.COPY_PART_ENV: str(5 * MIB),
+        "AWS_ACCESS_KEY_ID": "testing",
+        "AWS_SECRET_ACCESS_KEY": "testing",
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_EC2_METADATA_DISABLED": "true",
+    }
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    client = boto3.client("s3", endpoint_url=env[s3io.ENDPOINT_ENV])
+    for b in ("src", "dst"):
+        client.create_bucket(Bucket=b)
+    try:
+        yield client
+    finally:
+        server.stop()
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def s3_world(client, prefix: str):
+    """Three files in s3://src: one below the part threshold, two in parts."""
+    files = []
+    for i, size in enumerate((3 * MIB, 12 * MIB, 11 * MIB)):
+        name = f"{prefix}{i}_R1_001.fastq.gz"
+        data = bytes([i]) * size
+        client.put_object(Bucket="src", Key=f"raw/{name}", Body=data)
+        files.append(
+            FastqFile(f"G{i}", "read1", name, f"s3://src/raw/{name}", size, 1000)
+        )
+    plan = make_plan(
+        [plan_group([f]) for f in files], f"s3://dst/{prefix}/", 80 * GB, 100 * GB, 1
+    )
+    return plan, files
+
+
+def test_s3_copies_run_in_parts_and_match_the_source(moto_s3, tmp_path, monkeypatch):
+    plan, files = s3_world(moto_s3, "ok")
+    pools, calls = [], []
+    real_client, real_copy = s3io.make_s3_client, s3io.managed_copy
+    monkeypatch.setattr(
+        s3io, "make_s3_client", lambda n: pools.append(n) or real_client(n)
+    )
+    monkeypatch.setattr(
+        s3io,
+        "managed_copy",
+        lambda *a: calls.append(a[1:]) or real_copy(*a),
+    )
+    out = io.StringIO()
+    o = opts(tmp_path, copy_workers=2, copy_parts=3)
+    assert run_plan(plan, o, out=out) == 0, out.getvalue()
+    assert pools == [6]  # a connection for every part of every file in flight
+    assert sorted(c[0] for c in calls) == sorted(f.s3_uri for f in files)
+    assert all(c[3] == 3 for c in calls)
+    for f in files:
+        got = moto_s3.get_object(Bucket="dst", Key=f"ok/{f.filename}")
+        etag = got["ETag"].strip('"')
+        assert got["Body"].read() == bytes([int(f.group[1:])]) * f.size_bytes
+        # below 5 MiB: one request; above: a multipart copy of 5 MiB parts
+        assert ("-" in etag) == (f.size_bytes > 5 * MIB), (f.filename, etag)
+    rows = manifest(tmp_path / "run_manifest.tsv")
+    assert {r["status"] for r in rows.values()} == {"ok"}
+    # a rerun finds every copy present and correct
+    out = io.StringIO()
+    assert run_plan(plan, o, out=out) == 0
+    assert out.getvalue().count("present, skipping") == 3
+
+
+def test_a_failed_s3_copy_is_aborted_and_reported(moto_s3, tmp_path, monkeypatch):
+    plan, files = s3_world(moto_s3, "bad")
+    victim = files[1]
+    real_client = s3io.make_s3_client
+
+    def flaky_client(n):
+        client = real_client(n)
+        real_part = client.upload_part_copy
+
+        def part(**kw):
+            if kw["Key"].endswith(victim.filename) and kw["PartNumber"] == 2:
+                raise OSError("simulated part failure")
+            return real_part(**kw)
+
+        client.upload_part_copy = part
+        return client
+
+    monkeypatch.setattr(s3io, "make_s3_client", flaky_client)
+    out = io.StringIO()
+    assert run_plan(plan, opts(tmp_path, copy_parts=2), out=out) == 1
+    text = out.getvalue()
+    assert f"FAILED copy {victim.filename}: " in text
+    assert "simulated part failure" in text
+    listed = moto_s3.list_objects_v2(Bucket="dst", Prefix="bad/").get("Contents", [])
+    assert sorted(o["Key"] for o in listed) == sorted(
+        f"bad/{f.filename}" for f in files if f is not victim
+    )
+    # the multipart upload was aborted, not left behind to be billed
+    uploads = moto_s3.list_multipart_uploads(Bucket="dst", Prefix="bad/")
+    assert not uploads.get("Uploads")
