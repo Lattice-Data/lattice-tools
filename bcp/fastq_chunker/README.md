@@ -178,6 +178,162 @@ destination itself, not the manifest. It requires that:
 
 It writes `submission_report.tsv` and exits non-zero on any FAIL.
 
+## Copying a set into the SRA bucket, step by step
+
+This puts one set's files into its own folder in the SRA bucket, so that the
+folder holds exactly what the set's SRA sheet names. It does not submit
+anything to SRA. Every step runs in a terminal on a Biohub JupyterHub pod. The
+pod's role is what may read the vendor buckets and write the SRA bucket, so no
+AWS login is needed. Values written `<like-this>` (the bucket, and where DB2
+credentials come from) are not in this public repo; get them from the person
+who handed you this.
+
+You need:
+
+- **The flattener's two CSVs for the set:** `sra_file_set<N>.csv` and
+  `sra_sequence_fileset_set<N>.csv`.
+- **DB2 credentials:** a key and secret for production DB2. They are only
+  read; nothing is written to DB2.
+- **lattice-tools on the pod**, at `~/lattice-tools`, up to date:
+
+  ```bash
+  cd ~/lattice-tools && git checkout main && git pull --ff-only && git log --oneline -1
+  ```
+
+Keep each set's working files in `~/fastq_batches/`, never inside
+`~/lattice-tools`: the sheets and plans carry collaborators' file and library
+names, and the repo is public.
+Commands below are run one at a time. If you open a new terminal, set the
+variables from steps 1 and 3 again (`SET`, `B`, `NAME`, `SRA`) before going on.
+
+**1. Name the set's folder.** Upload the two CSVs with the JupyterHub file
+browser into `~/fastq_batches/incoming/`, then set `SET` to the sheets'
+`set<N>` and make the folder. Its name is the date, the set, and the first
+8 characters of the sheet's sha256, so two versions of a sheet never share a
+folder:
+
+```bash
+mkdir -p ~/fastq_batches/incoming
+```
+```bash
+SET=set1
+NAME="$(date -u +%Y%m%d)-$SET-$(sha256sum ~/fastq_batches/incoming/sra_file_$SET.csv | cut -c1-8)"; B=~/fastq_batches/$NAME; mkdir -p $B && mv ~/fastq_batches/incoming/sra_file_$SET.csv ~/fastq_batches/incoming/sra_sequence_fileset_$SET.csv $B/ && echo $NAME
+```
+
+Write the printed name down. Run this step once per set: on a later day it
+would make a new name, and a rerun must use the old folder.
+
+**2. Give the shell your DB2 credentials.** Typed at the prompts, they stay
+out of the shell history and are gone when the terminal closes. The server is
+`<db2-server-url>`:
+
+```bash
+read -rp "DB2 server: " DB2_PROD_SERVER; read -rp "DB2 key: " DB2_PROD_KEY; read -rsp "DB2 secret: " DB2_PROD_SECRET; echo; export DB2_PROD_SERVER DB2_PROD_KEY DB2_PROD_SECRET
+```
+
+**3. Resolve the set against DB2 and plan it.** Set `SRA` to the bucket, then
+run `resolve`:
+
+```bash
+SRA=s3://<sra-bucket>
+```
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker resolve --sra-sheet $B/sra_file_$SET.csv --set-sheet $B/sra_sequence_fileset_$SET.csv --out-dir $B
+```
+
+It prints `… libraries, … sets, … files, … GB; the SRA sheet matches DB2's
+sra_file_names`. If it refuses instead, it lists every problem and writes
+nothing. Stop there and send the output to whoever made the sheets: the sheets
+and DB2 disagree, and copying would not fix that. Then plan:
+
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker plan --file-sets $B/sets.json --files $B/files.json --dst $SRA/$NAME/ --out $B/plan.json > $B/plan_summary.txt && head -1 $B/plan_summary.txt
+```
+
+It prints `G groups, S to split; …`. With `0 to split`, every file is copied
+as it is. With more, the files of 100 GB or more are split into chunks, and
+step 6 is needed.
+
+**4. Check where it will write.** The first line must be `$SRA/$NAME/`. On a
+first run the listing after it must be empty; if it shows files, stop, since
+something else is already in that folder. On a rerun of the same set it shows
+the files copied so far.
+
+```bash
+python -c "import json,sys; print(json.load(open(sys.argv[1]))['dst'])" $B/plan.json; aws s3 ls $SRA/$NAME/
+```
+
+**5. Start the copy.** It runs in the background, so closing the browser does
+not stop it. Copies have run at 13 to 27 GB a minute (a 1.3 TB set took 100
+minutes); splitting a 500 GB file takes 2 to 3 hours.
+
+```bash
+cd ~/lattice-tools/bcp && AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive nohup sh -c "date; python -u -m fastq_chunker run --plan $B/plan.json --copy-singletons --log-dir $B/logs --manifest $B/run_manifest.tsv; date" > $B/run.log 2>&1 &
+```
+
+Check on it whenever you like. This prints the files copied so far, any
+failures, and the last line of the log:
+
+```bash
+grep -c '^copied' $B/run.log; grep FAILED $B/run.log; tail -1 $B/run.log
+```
+
+It is finished when the last line of `run.log` is a date. If any line says
+`FAILED`, or the run stopped partway, start step 5 again exactly as written:
+files already copied and checked are skipped, and only what is missing or
+wrong is redone.
+
+**6. Only if step 3 said anything to split: verify the chunks.** This
+decompresses every chunk and checks its read count, its md5, and that mates
+line up. It also runs in the background:
+
+```bash
+cd ~/lattice-tools/bcp && nohup sh -c "date; python -u -m fastq_chunker verify --plan $B/plan.json --level full --out $B/verify_report.tsv; date" > $B/verify.log 2>&1 &
+```
+
+**7. Check the folder.** This is the gate. It reads the folder itself and
+changes nothing:
+
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker check-submission --plan $B/plan.json --sra-sheet $B/sra_file_$SET.csv --out $B/submission_report.tsv
+```
+
+If step 6 ran, add `--verify-report $B/verify_report.tsv`. The set is done
+when this prints `PASS: …, 0 failed`, with every copy checked by
+`size+crc64nvme`. A `FAIL` line names the file and the check. Most are fixed
+by running step 5 again, then this step; anything else, send it on.
+
+**8. Record the summary**: start and end time, files, GB, and how each copy
+was checked. Send it with step 7's output to whoever handed you the set:
+
+```bash
+grep -v '^nohup' $B/run.log | head -1; tail -1 $B/run.log; awk -F'\t' 'NR>1 {sub(/\r$/, ""); n++; gb+=$3/1e9; c[$7]++; s[$5]++} END {printf "%d files, %.1f GB; status:", n, gb; for (k in s) printf " %s=%d", k, s[k]; printf "; checked:"; for (k in c) printf " %s=%d", k, c[k]; print ""}' $B/run_manifest.tsv
+```
+
+Do not create folders in the bucket from the S3 console: the marker it leaves
+fails step 7.
+
+**Removing a set's folder**, when it was only a test or has to be redone from
+scratch. Deletion is permanent. Check the count and the names first; every
+line must start with `(dryrun) delete: $SRA/$NAME/`:
+
+```bash
+aws s3 rm $SRA/$NAME/ --recursive --dryrun | wc -l
+```
+```bash
+aws s3 rm $SRA/$NAME/ --recursive --dryrun | head -3
+```
+
+Then delete it, and confirm the folder is gone. The listing should not show
+`$NAME/`:
+
+```bash
+aws s3 rm $SRA/$NAME/ --recursive
+```
+```bash
+aws s3 ls $SRA/
+```
+
 ## Performance
 
 Measured in the JupyterHub pod (96 cores) on one real Psomagen set: 20 GB
