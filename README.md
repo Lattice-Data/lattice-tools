@@ -50,6 +50,9 @@ So you'd define the following three variables.
 * **curation_qa.ipynb**
 Quality assurance checks on an AnnData object
 
+* **curation_revision_perturbation.ipynb**
+Revises published Datasets with `experimental_condition_ontology_term_id` from a curator-written spec in `cellxgene_resources/revisions/`, validates, and uploads into a revision
+
 * **curation_sample_code.ipynb**
 Various samples of how to manipulate an AnnData object during curation
 
