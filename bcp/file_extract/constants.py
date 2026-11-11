@@ -101,12 +101,17 @@ RUN_CARDINALITY_SINGLE = "single-end"
 STATUS_CURRENT = "current"
 NO_FILE_AVAILABLE_FALSE = "FALSE"
 
+# Lowercase hex, as DB2's RawMatrixFile and ProcessedMatrixFile take it. Both
+# matrix modes fill it by default; --no-md5 drops the column.
+MD5_COLUMN = "md5sum"
+
 H5_BASE_COLUMNS = [
     "library",
     "sample",
     "s3_uri",
     "size_bytes",
     "crc64nvme_base64",
+    "md5sum",
     "derived_from",
 ]
 
@@ -114,6 +119,7 @@ SCALE_H5AD_COLUMNS = [
     "filename",
     "s3_uri",
     "crc64nvme_base64",
+    "md5sum",
     "sample",
     "samples",
     "file_size",
@@ -143,6 +149,11 @@ H5_METRICS_COLUMNS = [
     "metrics_cells",
     "metrics_cells_match",
 ]
+
+# Read size for streaming an object through md5. Large enough that a multi-GB
+# matrix is a few hundred requests' worth of reads, small enough that eight
+# workers hold well under 100 MB between them.
+MD5_CHUNK_BYTES = 8 * 1024 * 1024
 
 TRANSIENT_ERROR_CODES = frozenset(
     {

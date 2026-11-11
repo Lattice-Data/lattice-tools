@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import boto3
+import botocore.httpchecksum
 from botocore.config import Config
 
 from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
@@ -26,6 +27,7 @@ from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
 from .scale_flags import validate_raw_subdirs
+from .scale_h5ad import DEFAULT_WORKERS as SCALE_DEFAULT_WORKERS
 from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
 from .scale_wells import ScaleExtractError
 from .sheets import (
@@ -76,7 +78,7 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
 
 
 def _positive_int(value: str) -> int:
-    """argparse type for a thread count of at least 1."""
+    """argparse type for a count of at least 1: threads, attempts."""
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -277,6 +279,7 @@ def _run_h5(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_h5_output_name(location.prefix)
     do_introspect = not args.no_introspect
+    do_md5 = not args.no_md5
 
     if do_introspect:
         check_introspection_deps()
@@ -288,11 +291,15 @@ def _run_h5(args: argparse.Namespace) -> int:
     print(f"Lab: {lab.name}")
     print(f"Target filename: {args.target_filename}")
     print(
-        f"Introspect: {do_introspect} | genome: {args.genome} | metrics: {args.metrics}"
+        f"Introspect: {do_introspect} | genome: {args.genome} | "
+        f"metrics: {args.metrics} | md5: {do_md5}"
     )
+    _print_md5_warning(do_md5)
     print("Listing matching h5 files ...")
 
-    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=args.workers)
+    pool_size = h5_worker_ceiling(
+        do_introspect=do_introspect, do_md5=do_md5, workers=args.workers
+    )
     s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
     summary = extract_h5(
         s3_client,
@@ -304,6 +311,7 @@ def _run_h5(args: argparse.Namespace) -> int:
         do_introspect=do_introspect,
         do_genome=args.genome,
         do_metrics=args.metrics,
+        do_md5=do_md5,
         workers=args.workers,
         retries=args.retries,
         show_progress=not args.quiet,
@@ -315,6 +323,8 @@ def _run_h5(args: argparse.Namespace) -> int:
         return 0
 
     print(f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}", end="")
+    if do_md5:
+        print(f" | md5 OK: {summary.md5_ok}", end="")
     if do_introspect:
         print(f" | introspect OK: {summary.enrichment_ok}", end="")
     print(f"\nOutput: {output}")
@@ -337,6 +347,8 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     if not metadata_experiment:
         raise ScaleExtractError("--metadata-experiment must not be empty")
     lab = LabIdentity.parse(args.lab)
+    do_md5 = not args.no_md5
+    workers = args.workers or SCALE_DEFAULT_WORKERS
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
@@ -344,10 +356,14 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     print(f"Metadata sheet: {metadata_gid}")
     print(f"Metadata experiment: {metadata_experiment}")
     print(f"Raw subdirs: {', '.join(raw_subdirs)}")
+    print(f"md5: {do_md5}")
+    _print_md5_warning(do_md5)
     check_introspection_deps()
     print("Listing samples/*.h5ad, scaleplex/*.mtx, and raw *.cram ...")
 
-    s3_client = boto3.client("s3")
+    # Each worker holds one S3 connection at a time, the md5 stream for a whole
+    # file, so the pool matches the thread count.
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
     summary = extract_scale_h5ad(
         s3_client,
         location.bucket,
@@ -357,7 +373,8 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         metadata_experiment=metadata_experiment,
         lab=lab.name,
         raw_subdirs=raw_subdirs,
-        workers=args.workers,
+        do_md5=do_md5,
+        workers=workers,
         retries=args.retries,
         show_progress=not args.quiet,
     )
@@ -368,15 +385,47 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         print("Nothing to do.")
         return 1 if args.strict and summary.empty_raw_subdirs else 0
 
+    md5_part = f" | md5 OK: {summary.md5_ok}" if do_md5 else ""
     print(
         f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}"
-        f" | introspect OK: {summary.enrichment_ok}"
+        f"{md5_part} | introspect OK: {summary.enrichment_ok}"
     )
     print(f"Output: {output}")
     _print_failures(summary.failures)
     if args.strict and (summary.has_failures or summary.empty_raw_subdirs):
         return 1
     return 0
+
+
+def _print_md5_warning(do_md5: bool) -> None:
+    """Say before a long hashing run that downloads are checked by length only."""
+    warning = _checksum_support_warning() if do_md5 else None
+    if warning:
+        _print_warnings([warning])
+
+
+def _checksum_support_warning() -> str | None:
+    """A warning when botocore cannot verify CRC64NVME, S3's default checksum.
+
+    botocore registers that algorithm only with awscrt 0.23.4+ installed and
+    otherwise skips the verification silently, so the operator is told that
+    each download is checked by length alone.
+    """
+    supported = getattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", None)
+    if supported is None:
+        # The name is botocore's private one. If a release drops it, fail
+        # toward the warning rather than toward silence.
+        return (
+            "botocore no longer lists its checksum algorithms, so CRC64NVME "
+            "verification cannot be confirmed; each download may be checked by "
+            "length only"
+        )
+    if "crc64nvme" in supported:
+        return None
+    return (
+        "botocore cannot verify CRC64NVME here (awscrt>=0.23.4 is not "
+        "installed); each download is checked by length only"
+    )
 
 
 def _invalid_uri_exit(message: str) -> NoReturn:
@@ -467,7 +516,7 @@ def build_parser() -> argparse.ArgumentParser:
     fastq.add_argument("--workers", type=int, default=None, help="Process count")
     fastq.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -499,7 +548,7 @@ def build_parser() -> argparse.ArgumentParser:
     cram.add_argument("--workers", type=int, default=None, help="Process count")
     cram.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -525,7 +574,9 @@ def build_parser() -> argparse.ArgumentParser:
             "derived_from is a JSON list of {lab}:{fastq_filename} aliases\n"
             "for the selected FASTQs in the sibling raw/ of each h5's\n"
             "processed/ parent. Every h5 under one library directory shares\n"
-            "that list."
+            "that list.\n"
+            "md5sum is the lowercase-hex MD5 of each h5, read in full from S3;\n"
+            "--no-md5 skips it and drops the column."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -556,7 +607,12 @@ def build_parser() -> argparse.ArgumentParser:
     h5.add_argument(
         "--no-introspect",
         action="store_true",
-        help="Skip opening the h5; emit checksums/size only",
+        help="Skip opening the h5 for counts; checksums are still written",
+    )
+    h5.add_argument(
+        "--no-md5",
+        action="store_true",
+        help="Skip md5sum, which reads every h5 in full; drops the column",
     )
     h5.add_argument(
         "--genome",
@@ -572,11 +628,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--workers",
         type=_positive_int,
         default=None,
-        help="Positive thread count (default: 8 with introspection, 64 without)",
+        help=(
+            "Positive thread count, also the S3 connection pool size "
+            "(default: 8; 64 with --no-introspect --no-md5)"
+        ),
     )
     h5.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -594,8 +653,10 @@ def build_parser() -> argparse.ArgumentParser:
             "matrix.mtx.gz under {rundate}/scaleplex/, then write a TSV.\n"
             "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
             "RT_index wells. Control samples with no pairing are omitted.\n\n"
-            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
-            "file_size, observation_count, feature_counts, derived_from.\n"
+            "TSV columns: filename, s3_uri, crc64nvme_base64, md5sum, sample,\n"
+            "samples, file_size, observation_count, feature_counts, derived_from.\n"
+            "md5sum is the lowercase-hex MD5 of each file, read in full from\n"
+            "S3; --no-md5 skips it and drops the column.\n"
             "samples is a JSON list of correlating sample_name values, each\n"
             "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
             "observation_count is n_obs from the h5ad obs table, or barcodes\n"
@@ -648,14 +709,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output TSV (default: <run_date>_scale_h5ad_info.tsv)",
     )
     scale_h5ad.add_argument(
+        "--no-md5",
+        action="store_true",
+        help="Skip md5sum, which reads every file in full; drops the column",
+    )
+    scale_h5ad.add_argument(
         "--workers",
-        type=int,
+        type=_positive_int,
         default=None,
-        help="Thread count (default: min(16, n_files))",
+        help=(
+            f"Positive thread count, also the S3 connection pool size "
+            f"(default: min({SCALE_DEFAULT_WORKERS}, n_files))"
+        ),
     )
     scale_h5ad.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )

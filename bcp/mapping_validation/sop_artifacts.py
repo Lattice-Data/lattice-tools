@@ -95,11 +95,15 @@ TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT: Final[dict[str, str]] = {
     "_sample.fastq.gz-metadata.json": "sample_fastq_metadata",
 }
 
+# ``sample_fastq`` (``_sample.fastq.gz``) stays classifiable above but is not
+# required: the Ultima conversion/trimming step produces it for some tails and
+# not others, and nothing downstream reads it, so a tail without it is not a
+# faulty delivery. Order QA treats it the same way (``raw_optional["10x"]`` in
+# ``qa_constants``).
 TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS: Final[set[str]] = {
     "fastq",
     "fastq_csv",
     "fastq_json",
-    "sample_fastq",
 }
 
 # Optional STAR Solo / application-QC files (recognised but never required).

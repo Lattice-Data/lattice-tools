@@ -14,11 +14,11 @@ from typing import Any, Callable, Sequence
 
 from tqdm import tqdm
 
-from .constants import SCALE_H5AD_COLUMNS
+from .constants import MD5_COLUMN, SCALE_H5AD_COLUMNS
 from .h5ad_introspect import count_h5ad_dims
 from .metadata_sheet import fetch_sample_template, parse_sample_template
 from .mtx_introspect import count_mtx_dims
-from .models import ListedObject, RunSummary
+from .models import NO_ERROR_MESSAGE, ListedObject, RunSummary, failure_detail
 from .retry import retry_with_backoff
 from .s3_utils import (
     fetch_crc64nvme,
@@ -26,6 +26,7 @@ from .s3_utils import (
     list_objects_with_size,
     parse_s3_uri,
     s3_uri_for,
+    stream_md5,
 )
 from .scale_wells import (
     ScaleExtractError,
@@ -47,6 +48,8 @@ MTX_BASENAMES = frozenset({"matrix.mtx.gz", "matrix.mtx"})
 SCALEPLEX_MATRIX_DIR_RE = re.compile(r"\.QSR-\d+-SCALEPLEX\.filtered\.matrix$")
 H5AD_FEATURE_TYPE = "gene"
 SCALEPLEX_FEATURE_TYPE = "hash oligo"
+# Thread count, and the S3 connection-pool size the CLI gives those threads.
+DEFAULT_WORKERS = 16
 CRAM_QSR_WELL_RE = re.compile(
     r"QSR-(\d+)(?:-SCALEPLEX)?[_-](\d{1,2}[A-H])\.cram$",
     re.IGNORECASE,
@@ -58,6 +61,19 @@ class ScaleCram:
     qsr: str
     well: str
     scaleplex: bool
+
+
+@dataclass(frozen=True)
+class FileResult:
+    """What one listed file yielded; an error string is empty on success."""
+
+    crc: str | None
+    crc_error: str
+    md5: str | None
+    md5_error: str
+    observation_count: int | None
+    feature_counts: str | None
+    introspect_error: str
 
 
 @dataclass(frozen=True)
@@ -435,18 +451,37 @@ def _introspect_counts(s3_client: Any, bucket: str, key: str) -> tuple[int, str]
 
 
 def _process_one(
-    s3_client: Any, bucket: str, key: str, *, retries: int
-) -> tuple[str | None, str, int | None, str | None, str]:
+    s3_client: Any, bucket: str, key: str, *, do_md5: bool, retries: int
+) -> FileResult:
     crc, crc_err = retry_with_backoff(
         fetch_crc64nvme, s3_client, bucket, key, retries=retries
     )
+    hashed, md5_err = None, None
+    if do_md5:
+        hashed, md5_err = retry_with_backoff(
+            stream_md5, s3_client, bucket, key, retries=retries
+        )
     intro, intro_err = retry_with_backoff(
         _introspect_counts, s3_client, bucket, key, retries=retries
     )
-    if intro is None:
-        return crc, crc_err or "", None, None, intro_err or ""
-    obs, feature_counts = intro
-    return crc, crc_err or "", obs, feature_counts, intro_err or ""
+    obs, feature_counts = intro if intro is not None else (None, None)
+    md5_error = ""
+    if do_md5 and hashed is None:
+        md5_error = md5_err or NO_ERROR_MESSAGE
+    return FileResult(
+        crc=crc,
+        crc_error=crc_err or "",
+        # A failed read leaves the cell empty, never a partial digest.
+        md5=hashed[0] if hashed is not None else None,
+        md5_error=md5_error,
+        observation_count=obs,
+        feature_counts=feature_counts,
+        introspect_error=intro_err or "",
+    )
+
+
+def scale_h5ad_columns(*, do_md5: bool) -> list[str]:
+    return [col for col in SCALE_H5AD_COLUMNS if do_md5 or col != MD5_COLUMN]
 
 
 def extract_scale_h5ad(
@@ -459,6 +494,7 @@ def extract_scale_h5ad(
     metadata_experiment: str,
     lab: str,
     raw_subdirs: Sequence[str],
+    do_md5: bool = True,
     workers: int | None = None,
     retries: int = 5,
     show_progress: bool = True,
@@ -538,12 +574,17 @@ def extract_scale_h5ad(
     if not targets:
         return summary
 
-    writer = TsvWriter(output_path, SCALE_H5AD_COLUMNS)
-    max_workers = min(workers or 16, len(targets))
+    writer = TsvWriter(output_path, scale_h5ad_columns(do_md5=do_md5))
+    max_workers = min(workers or DEFAULT_WORKERS, len(targets))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                _process_one, s3_client, bucket, obj.key, retries=retries
+                _process_one,
+                s3_client,
+                bucket,
+                obj.key,
+                do_md5=do_md5,
+                retries=retries,
             ): obj
             for obj in targets
         }
@@ -552,35 +593,55 @@ def extract_scale_h5ad(
             iterator = tqdm(iterator, total=len(targets), desc="Processing")
 
         # Keep TSV rows in listing order, not completion order.
-        results: dict[str, tuple[str | None, str, int | None, str | None, str]] = {}
-        for fut in iterator:
-            obj = futures[fut]
-            results[obj.key] = fut.result()
+        results: dict[str, FileResult] = {}
+        try:
+            for fut in iterator:
+                obj = futures[fut]
+                results[obj.key] = fut.result()
+        except BaseException:
+            # Ctrl-C must not drain the queue: the executor's __exit__ would
+            # run every queued file, md5 streams included, to completion. Only
+            # the files already in flight finish; a thread cannot be stopped.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
 
     for obj in targets:
         filename = tsv_filename(obj.key, prefix)
-        crc, crc_err, obs, feature_counts, intro_err = results[obj.key]
+        r = results[obj.key]
         sample = sample_from_filename(filename)
-        writer.append_row(
+        row: list[object] = [
+            filename,
+            s3_uri_for(bucket, obj.key),
+            r.crc if r.crc is not None else "",
+        ]
+        if do_md5:
+            row.append(r.md5 if r.md5 is not None else "")
+        row.extend(
             [
-                filename,
-                s3_uri_for(bucket, obj.key),
-                crc if crc is not None else "",
                 sample,
                 format_samples_column(
                     correlation.sample_names.get(sample, ()), lab_name
                 ),
                 obj.size_bytes,
-                obs if obs is not None else "",
-                feature_counts if feature_counts is not None else "",
+                r.observation_count if r.observation_count is not None else "",
+                r.feature_counts if r.feature_counts is not None else "",
                 format_derived_from(derived_map.get(filename, ())),
             ]
         )
-        if not crc_err:
+        writer.append_row(row)
+        if not r.crc_error:
             summary.crc_ok += 1
-        if not intro_err:
+        if do_md5 and not r.md5_error:
+            summary.md5_ok += 1
+        if not r.introspect_error:
             summary.enrichment_ok += 1
-        if crc_err or intro_err:
-            summary.failures.append((obj.key, crc_err, intro_err))
+        if r.crc_error or r.introspect_error or r.md5_error:
+            summary.failures.append(
+                (
+                    obj.key,
+                    r.crc_error,
+                    failure_detail(r.introspect_error, r.md5_error),
+                )
+            )
 
     return summary

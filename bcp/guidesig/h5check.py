@@ -671,7 +671,7 @@ def check_guide_ids_against_h5(
     except ValueError as exc:
         raise H5CheckError(str(exc)) from exc
 
-    pool_size = h5_worker_ceiling(do_introspect=True, workers=workers)
+    pool_size = h5_worker_ceiling(do_introspect=True, do_md5=False, workers=workers)
     if s3_client is None or reader is None:
         check_dependencies()
     if s3_client is None:

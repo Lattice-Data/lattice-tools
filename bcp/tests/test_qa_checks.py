@@ -653,6 +653,49 @@ class TestCheckExpectedRawFiles:
         assert raw_lost == []
         assert len(raw_found) == len(all_raw)
 
+    def test_10x_without_sample_fastq_is_complete(self):
+        """TOOLS-383: a 10x bundle with no ``_sample.fastq.gz`` is not missing anything."""
+        from qa_mods import raw_expected
+
+        base = "proj/order/G1/raw/439047-G1_GEX-Z0273-BC01"
+        assert not any("_sample.fastq.gz" in e for e in raw_expected["10x"])
+        all_raw = [f"{base}{e}" for e in raw_expected["10x"]]
+        all_good, raw_lost, _raw_found = check_expected_raw_files(all_raw, "10x")
+        assert all_good == 1
+        assert raw_lost == []
+        assert check_extra_raw_files(all_raw, _raw_found, "10x") == []
+
+    def test_10x_sample_fastq_present_is_not_extra(self):
+        """A delivered ``_sample.fastq.gz`` and its sidecar are optional, not extra."""
+        from qa_mods import raw_expected
+
+        base = "proj/order/G1/raw/439047-G1_GEX-Z0273-BC01"
+        all_raw = [f"{base}{e}" for e in raw_expected["10x"]]
+        sample_files = [
+            f"{base}_S1_L001_{r}_001_sample.fastq.gz{s}"
+            for r in ("R1", "R2")
+            for s in ("", "-metadata.json")
+        ]
+        all_raw += sample_files
+        all_good, raw_lost, raw_found = check_expected_raw_files(all_raw, "10x")
+        assert all_good == 1
+        assert raw_lost == []
+        assert check_extra_raw_files(all_raw, raw_found, "10x") == []
+
+    def test_10x_read_fastq_still_required(self):
+        """Relaxing the sample FASTQ leaves the read FASTQ required."""
+        from qa_mods import raw_expected
+
+        base = "proj/order/G1/raw/439047-G1_GEX-Z0273-BC01"
+        missing = "_S1_L001_R2_001.fastq.gz"
+        all_raw = [f"{base}{e}" for e in raw_expected["10x"] if e != missing]
+        all_raw.append(f"{base}_S1_L001_R2_001_sample.fastq.gz")
+        all_good, raw_lost, _raw_found = check_expected_raw_files(all_raw, "10x")
+        assert all_good == 0
+        assert raw_lost == [
+            {"path": "439047-G1_GEX-Z0273-BC01", missing: f"{base}{missing}"}
+        ]
+
     def test_10x_one_missing(self):
         """When one expected file is missing, raw_lost has one entry."""
         base = "proj/order/G1/raw/439047-G1_GEX-Z0273-BC01"

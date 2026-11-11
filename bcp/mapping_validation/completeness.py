@@ -462,7 +462,8 @@ def validate_10x_raw_fastq_completeness(
 
     - If the suffix is an Illumina tail variant (``_S*_L*_R*_*.csv`` etc.),
       record it under per-prefix → per-tail bookkeeping and require the
-      four per-tail SOP artifacts (.fastq.gz, .csv, .json, _sample.fastq.gz).
+      three per-tail SOP artifacts (.fastq.gz, .csv, .json).
+      ``_sample.fastq.gz`` is recognised when present but never required.
     - Otherwise treat it as a per-prefix metadata suffix (.csv, .json,
       _trimmer-*.csv, _unmatched.*) and require the seven per-prefix SOP
       artifacts.

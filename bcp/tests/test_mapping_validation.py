@@ -48,6 +48,7 @@ from mapping_validation import (
     validate_sif_completeness_seahub,
     validate_uniqueness,
 )
+from mapping_validation.sif_io import _normalize_sif_assay_token
 
 
 def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
@@ -1599,14 +1600,14 @@ def test_get_assays_returns_base_set_for_10x() -> None:
     """get_assays('10x') should return the family base without provider extras."""
     assays = get_assays("10x")
     assert assays == ASSAYS_10X
-    assert assays == {"GEX", "CRI", "ATAC"}
+    assert assays == {"GEX", "CRI", "ATAC", "ADT", "HTO", "ADT_HTO"}
 
 
 def test_get_assays_extends_with_provider_extras() -> None:
     """get_assays('10x', 'psomagen') should include viral_ORF."""
     assays = get_assays("10x", "psomagen")
     assert "viral_ORF" in assays
-    assert assays == {"GEX", "CRI", "ATAC", "viral_ORF"}
+    assert assays == {"GEX", "CRI", "ATAC", "ADT", "HTO", "ADT_HTO", "viral_ORF"}
 
 
 def test_get_assays_novogene_equals_base_10x() -> None:
@@ -2230,6 +2231,162 @@ def test_s3_local_consistency_10x_processed_group_id_normalized_match() -> None:
     assert res["matched"] == 1
     assert not any(e["type"] == "group_id_missing_local" for e in res["errors"])
     assert any(w["type"] == "group_id_normalized_match" for w in res["warnings"])
+
+
+_PROC_S3_FLEX = (
+    "s3://czi-novogene/test-project/NVUS0000000000-23/"
+    "GIS_MEC_Hyb_B001_GEM1/processed/cellranger/Run_2000-04-11/outs/"
+)
+_PROC_LOCAL_FLEX = (
+    "/local/user_003/10xFlex/X000SC00000000-Z00-F000_10xFlex_Cellranger_20000101/"
+    "Flex_cellranger/GISHB001GEM1/outs/"
+)
+_FLEX_SIF = (
+    "Library name,Group Identifier,Assay Type\n"
+    "GISHB001GEM1IA1,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA2,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA3,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA4,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+)
+
+
+_FLEX_SIF_GEM2 = (
+    "GISHB001GEM2IA5,GIS_MEC_Hyb_B001_GEM2,GEX\n"
+    "GISHB001GEM2IA6,GIS_MEC_Hyb_B001_GEM2,GEX\n"
+)
+_FLEX_SIF_GEM10 = (
+    "GISHB001GEM10IA1,GIS_MEC_Hyb_B001_GEM10,GEX\n"
+    "GISHB001GEM10IA2,GIS_MEC_Hyb_B001_GEM10,GEX\n"
+)
+
+
+def _flex_row(local_dir: str, s3_dir: str = _PROC_S3_FLEX) -> list[MappingRow]:
+    return [
+        MappingRow(
+            s3_path=s3_dir + "filtered_feature_bc_matrix.h5",
+            local_path=local_dir + "filtered_feature_bc_matrix.h5",
+            line_num=1,
+        )
+    ]
+
+
+def test_s3_local_consistency_10x_processed_sif_library_stem_alias(
+    tmp_path: Path,
+) -> None:
+    """A local folder named by the libraries' common stem is a warning with a SIF."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX), sif
+    )
+    assert res["matched"] == 1
+    assert res["errors"] == []
+    (warning,) = res["warnings"]
+    assert warning["type"] == "group_id_sif_alias_match"
+    assert "'GISHB001GEM1'" in warning["detail"]
+
+
+def test_s3_local_consistency_10x_processed_sif_library_name_alias(
+    tmp_path: Path,
+) -> None:
+    """A local folder named by one member library is an alias too."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "GISHB001GEM1IA3/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert res["errors"] == []
+    assert [w["type"] for w in res["warnings"]] == ["group_id_sif_alias_match"]
+    assert "'GISHB001GEM1IA3'" in res["warnings"][0]["detail"]
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_absent_is_error(
+    tmp_path: Path,
+) -> None:
+    """With a SIF but no alias in the local path, the error stands."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "sample_7/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+    assert res["warnings"] == []
+
+
+def test_s3_local_consistency_10x_processed_without_sif_unchanged() -> None:
+    """Without a SIF the stem is unknown, so the local folder is still an error."""
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX)
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_survives_a_gem10_sibling(
+    tmp_path: Path,
+) -> None:
+    """GEM1's folder still names GEM1 when a GEM10 group shares the prefix."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM10, encoding="utf-8")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX), sif
+    )
+    assert res["errors"] == []
+    assert [w["type"] for w in res["warnings"]] == ["group_id_sif_alias_match"]
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_rejects_gem10_in_gem1_folder(
+    tmp_path: Path,
+) -> None:
+    """GEM10 data under the GEM1 folder is an error: the prefix cuts the number."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM10, encoding="utf-8")
+    s3_dir = _PROC_S3_FLEX.replace("_GEM1/", "_GEM10/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX, s3_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+    assert res["warnings"] == []
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_ignores_batch_parent_folder(
+    tmp_path: Path,
+) -> None:
+    """A parent folder naming the whole batch counts for no group."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM2, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace(
+        "/Flex_cellranger/", "/Flex_cellranger/GISHB001/"
+    )
+    gem2 = _PROC_S3_FLEX.replace("_GEM1/", "_GEM2/")
+    swapped = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir, gem2), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in swapped["errors"])
+    right = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert right["errors"] == []
+    assert [w["type"] for w in right["warnings"]] == ["group_id_sif_alias_match"]
+
+
+def test_s3_local_consistency_10x_processed_short_sif_alias_ignored(
+    tmp_path: Path,
+) -> None:
+    """Library names shorter than eight characters never serve as aliases."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\n"
+        "L1,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+        "L2,GIS_MEC_Hyb_B001_GEM1,GEX\n",
+        encoding="utf-8",
+    )
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "L1/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
 
 
 def test_s3_local_consistency_10x_processed_file_path_mismatch() -> None:
@@ -3451,19 +3608,80 @@ def test_validate_10x_raw_fastq_completeness_missing_per_prefix_metadata() -> No
     assert missing
 
 
-def test_validate_10x_raw_fastq_completeness_missing_per_tail_sample_fastq() -> None:
-    """Dropping the R1 ``_sample.fastq.gz`` should fire a per-tail completeness error."""
+@pytest.mark.parametrize("provider", ["novogene", "psomagen"])
+def test_validate_10x_raw_fastq_completeness_without_sample_fastq_passes(
+    provider: str,
+) -> None:
+    """TOOLS-383: tails with every read FASTQ but no ``_sample.fastq.gz`` pass.
+
+    The Ultima conversion step writes ``_sample.fastq.gz`` for some tails and
+    not others, and nothing downstream reads it. Its absence must not be an
+    error or a warning, for either provider.
+    """
     rows = _tenx_fastq_complete_rows(
-        omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}
+        omit_per_tail={
+            ("S1_L001_R1_001", "_sample.fastq.gz"),
+            ("S1_L001_R2_001", "_sample.fastq.gz"),
+        }
     )
+    if provider == "psomagen":
+        rows = [
+            MappingRow(
+                r.s3_path.replace(
+                    "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/",
+                    "s3://czi-psomagen/project-scaling-alpha/AN00000001/",
+                ),
+                r.local_path,
+                r.line_num,
+            )
+            for r in rows
+        ]
+    res = validate_10x_raw_fastq_completeness(provider, rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["missing_per_tail"] == {}
+    assert res["tails_checked"] == 2
+
+
+def test_validate_10x_raw_fastq_completeness_sample_fastq_without_read_fastq_fails() -> (
+    None
+):
+    """Relaxing ``sample_fastq`` does not relax the read FASTQ it accompanies.
+
+    A tail that ships only ``_sample.fastq.gz`` (plus its .csv/.json) is still
+    missing the read FASTQ, which is what analysis needs.
+    """
+    rows = _tenx_fastq_complete_rows(omit_per_tail={("S1_L001_R1_001", ".fastq.gz")})
     res = validate_10x_raw_fastq_completeness("novogene", rows)
     missing = [
         e
         for e in res["errors"]
-        if e["type"] == "missing_sample_artifacts"
-        and "sample_fastq" in e.get("missing", [])
+        if e["type"] == "missing_sample_artifacts" and "S1_L001_R1_001" in e["s3_path"]
     ]
-    assert missing
+    assert len(missing) == 1
+    assert missing[0]["missing"] == ["fastq"]
+
+
+@pytest.mark.parametrize(
+    "omitted, artifact",
+    [(".csv", "fastq_csv"), (".json", "fastq_json")],
+)
+def test_validate_10x_raw_fastq_completeness_per_tail_metadata_still_required(
+    omitted: str, artifact: str
+) -> None:
+    """The per-tail .csv and .json remain required after TOOLS-383."""
+    rows = _tenx_fastq_complete_rows(omit_per_tail={("S1_L001_R2_001", omitted)})
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert [e["missing"] for e in res["errors"]] == [[artifact]]
+
+
+def test_validate_10x_raw_fastq_completeness_sample_fastq_still_recognised() -> None:
+    """A present ``_sample.fastq.gz`` is classified, not reported as unexpected."""
+    rows = _tenx_fastq_complete_rows()
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert res["errors"] == []
+    # 7 per-prefix + 2 tails x 4 per-tail rows, sample FASTQs included.
+    assert res["matched"] == 15
 
 
 def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
@@ -3481,3 +3699,193 @@ def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
         e["type"] == "unexpected_sample_file" and "_codes.csv" in e.get("detail", "")
         for e in res["errors"]
     )
+
+
+# ---------------------------------------------------------------------------
+# CITE-seq assays (ADT, HTO, ADT_HTO)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "provider,bucket,order",
+    [
+        ("psomagen", "czi-psomagen", "AN00000001"),
+        ("novogene", "czi-novogene", "NVUS0000000000-29"),
+    ],
+)
+@pytest.mark.parametrize("assay", ["ADT", "HTO", "ADT_HTO"])
+def test_validate_s3_10x_raw_accepts_cite_seq_assays(
+    provider: str, bucket: str, order: str, assay: str
+) -> None:
+    """CITE-seq tokens are SOP assays for both 10x vendors, not vendor extras."""
+    row = MappingRow(
+        f"s3://{bucket}/project-alpha/{order}/G1/raw/"
+        f"453047-G1_{assay}-Z0258-CAACAGCTCTCTGAT_S1_L001_R1_001.fastq.gz",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw(provider, [row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+    assert result["group_assays"] == {"G1": {assay}}
+
+
+def test_validate_s3_10x_raw_adt_hto_is_not_split_into_adt() -> None:
+    """``ADT_HTO`` must parse whole; a lazy stem could otherwise stop at ``ADT``."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_ADT_HTO-Z0258-CAACAGCTCTCTGAT.csv",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw("psomagen", [row])
+
+    assert result["group_assays"] == {"G1": {"ADT_HTO"}}
+
+
+def test_validate_s3_10x_raw_still_rejects_cite_spelling() -> None:
+    """``CITE`` is the library-prep name, not an SOP token; it stays unparsed."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_CITE-Z0258-CAACAGCTCTCTGAT.csv",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw("psomagen", [row])
+
+    assert result["matched"] == 0
+    assert {w["type"] for w in result["warnings"]} == {"parse_miss"}
+
+
+def test_validate_10x_raw_fastq_read_mates_adt_needs_r1_and_r2() -> None:
+    """ADT follows the non-ATAC rule: R1 and R2, so a lone R1 is flagged."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_ADT-Z0258-CAACAGCTCTCTGAT_S1_L001_R1_001.fastq.gz",
+        "/local/path",
+        2,
+    )
+
+    result = validate_10x_raw_fastq_read_mates("psomagen", [row])
+
+    assert result["errors"]
+
+
+def test_validate_s3_10x_illumina_raw_accepts_adt() -> None:
+    """10x_illumina shares the 10x assay family, so ADT FASTQs parse there too."""
+    rows = [
+        MappingRow(r.s3_path.replace("_GEX_", "_ADT_"), r.local_path, r.line_num)
+        for r in _illumina_complete_rows()
+    ]
+
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+
+    assert res["matched"] == 4
+    assert not res["errors"]
+    assert res["group_assays"] == {"CZI25093002": {"ADT"}}
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CITE-seq", "adt"),
+        ("CITE seq", "adt"),
+        ("citeseq", "adt"),
+        ("CITE", "adt"),
+        ("ADT", "adt"),
+        ("Cell Surface Protein", "adt"),
+        ("HTO", "hto"),
+        ("Hashtag", "hto"),
+        ("Hashtag oligo", "hto"),
+        ("Cell Hashing", "hto"),
+        ("ADT_HTO", "adt_hto"),
+        ("ADT + HTO", "adt_hto"),
+        ("CITE-seq + Hashtag", "adt_hto"),
+        # Unchanged neighbours.
+        ("Gene Expression", "gex"),
+        ("CRISPR", "cri"),
+        ("Feature Barcode", "cri"),
+    ],
+)
+@pytest.mark.parametrize("provider", ["psomagen", "novogene"])
+def test_normalize_sif_assay_token_cite_seq_for_10x_vendors(
+    provider: str, text: str, expected: str
+) -> None:
+    """10x Analysis Target text maps onto the ADT/HTO/ADT_HTO SOP tokens."""
+    assert _normalize_sif_assay_token(text, provider) == expected
+
+
+@pytest.mark.parametrize("text", ["photo", "excite", "hto2", "adtx"])
+def test_normalize_sif_assay_token_cite_seq_needs_whole_words(text: str) -> None:
+    """Substrings of other words must not be read as ADT or HTO."""
+    assert _normalize_sif_assay_token(text, "psomagen") not in {"adt", "hto", "adt_hto"}
+
+
+def test_normalize_sif_assay_token_scale_keeps_hash_oligo() -> None:
+    """Scale/sci SIFs load without a vendor; their hash-oligo spelling is unchanged."""
+    assert _normalize_sif_assay_token("Hashtag oligo") == "hash_oligo"
+    assert _normalize_sif_assay_token("Hashtag oligo", "scale") == "hash_oligo"
+
+
+def test_load_sif_group_assays_psomagen_cite_seq_analysis_target(
+    tmp_path: Path,
+) -> None:
+    """A Psomagen order form's ``CITE-seq`` Analysis Target loads as ``adt``."""
+    sif_path = tmp_path / "psomagen_cite.csv"
+    sif_path.write_text(
+        "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+        "G1_GEX,G1,Gene Expression\n"
+        "G1_CRISPR,G1,CRISPR\n"
+        "G1_CITE,G1,CITE-seq\n",
+        encoding="utf-8",
+    )
+
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "G1": {"gex", "cri", "adt"},
+    }
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Gene Expression + CITE-seq", "gex"),
+        ("GEX + ADT", "gex"),
+        ("Gene Expression with Cell Hashing", "gex"),
+        ("ATAC + HTO", "atac"),
+        ("CRISPR + CITE-seq", "cri"),
+        ("Cell surface protein + CRISPR", "cri"),
+        ("Viral ORF + ADT", "viral_orf"),
+    ],
+)
+def test_normalize_sif_assay_token_combined_text_keeps_other_assay(
+    text: str, expected: str
+) -> None:
+    """Text naming another assay too must not collapse to its CITE-seq part.
+
+    One token per row can only describe one library; letting ADT/HTO win
+    would drop the GEX/ATAC/CRI expectation and let a missing library pass.
+    """
+    assert _normalize_sif_assay_token(text, "psomagen") == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CITE_seq", "adt"),
+        ("HTO_ADT", "adt_hto"),
+    ],
+)
+def test_normalize_sif_assay_token_underscore_spellings(
+    text: str, expected: str
+) -> None:
+    """Underscore-joined spellings are read like their spaced forms."""
+    assert _normalize_sif_assay_token(text, "psomagen") == expected
+
+
+def test_normalize_sif_assay_token_cell_surface_protein_without_vendor() -> None:
+    """Without a 10x vendor, "cell surface protein" keeps its earlier ``cri``."""
+    assert _normalize_sif_assay_token("Cell Surface Protein") == "cri"

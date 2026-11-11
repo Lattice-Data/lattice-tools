@@ -156,6 +156,10 @@ def _normalize_sif_assay_token(raw: str, provider: str | None = None) -> str:
     p = (provider or "").strip().lower()
     if s in CANONICAL_ASSAY:
         return CANONICAL_ASSAY[s].lower()
+    if p in _TENX_VENDORS:
+        cite = _cite_seq_token(s)
+        if cite:
+            return cite
     if "hash" in s and "oligo" in s:
         return "hash_oligo"
     if "gex" in s and "hash" in s:
@@ -174,10 +178,54 @@ def _normalize_sif_assay_token(raw: str, provider: str | None = None) -> str:
         "feature" in s and "barcode" in s and p not in {"scale", "sci"}
     ):
         return "cri"
+    # Reached only without a 10x vendor; kept as it was before CITE-seq tokens.
     if "cell surface" in s and "protein" in s:
         return "cri"
     if len(s) <= 24:
         return s
+    return ""
+
+
+# The CLI loads 10x SIFs with the vendor as ``provider``.  Scale and sci SIFs
+# are Novogene too, but ``validate_sif_completeness_seahub`` loads them with no
+# provider, and that is the only thing keeping their "Hashtag oligo" spelling
+# on ``hash_oligo`` rather than ``hto``: pass a provider there and it changes.
+_TENX_VENDORS: frozenset[str] = frozenset({"psomagen", "novogene"})
+
+_OTHER_10X_ASSAY_RE: re.Pattern[str] = re.compile(
+    r"\b(?:gex|gene\s*expression|scrna|sc\s*rna|atac|cri|crispr)\b"
+)
+
+
+def _cite_seq_token(s: str) -> str:
+    """Return ``adt``, ``hto`` or ``adt_hto`` for CITE-seq Analysis Target text.
+
+    ``s`` is already stripped and lower-cased.  Protein tags arrive as
+    ``CITE-seq``, ``ADT`` or "cell surface protein"; hashtags as ``HTO``,
+    "Hashtag" or "Cell Hashing".  Text naming both kinds is one library that
+    carries both, ``adt_hto``.
+
+    Returns ``""`` when neither kind is named, and also when the text names
+    another assay too (``Gene Expression + CITE-seq``).  A single token cannot
+    stand for two libraries, and returning the CITE-seq one would drop the
+    other library's expectation, so such text falls through to the rules that
+    applied before these tokens existed.
+    """
+    # Underscores are word characters, so ``CITE_seq`` would defeat ``\b``.
+    s = s.replace("_", " ")
+    if _OTHER_10X_ASSAY_RE.search(s) or ("viral" in s and "orf" in s):
+        return ""
+    adt = bool(
+        re.search(r"\b(?:cite|citeseq|adt)\b", s)
+        or ("cell surface" in s and "protein" in s)
+    )
+    hto = bool(re.search(r"\bhto\b", s) or "hashtag" in s or "cell hashing" in s)
+    if adt and hto:
+        return "adt_hto"
+    if adt:
+        return "adt"
+    if hto:
+        return "hto"
     return ""
 
 
