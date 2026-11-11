@@ -53,6 +53,13 @@ def basename(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1]
 
 
+def object_identity(info: dict) -> str:
+    """``size=N etag=E`` for a listing or info entry, to tell one object from
+    another that replaced it. Off S3 there is no ETag and only the size says."""
+    etag = (info.get("ETag") or "").strip('"')
+    return f"size={info.get('size') or 0} etag={etag}"
+
+
 def is_s3(fs: fsspec.AbstractFileSystem) -> bool:
     protocol = fs.protocol if isinstance(fs.protocol, tuple) else (fs.protocol,)
     return "s3" in protocol
@@ -128,6 +135,59 @@ def make_s3_client(concurrency: int):
             retries={"max_attempts": 10, "mode": "adaptive"},
         ),
     )
+
+
+# Server-side copies. One CopyObject or UploadPartCopy request moves only a few
+# MB/s, so a file is copied as parts in flight together. TOOLS-382 pilot: a
+# 13.4 GB file took 2858 s one part at a time (s3fs) and 115 s with 32 at once.
+COPY_PART = 128 * 2**20
+COPY_THRESHOLD = 64 * 2**20
+COPY_PART_ENV = "FASTQ_CHUNKER_COPY_PART"  # tests only: S3's minimum part is 5 MiB
+DEFAULT_COPY_PARTS = 32
+MAX_PARTS = 10_000
+
+
+def copy_part_size(size: int) -> int:
+    part = int(os.environ.get(COPY_PART_ENV) or COPY_PART)
+    # grow the part rather than exceed S3's part cap on a very large file
+    return max(part, -(-size // MAX_PARTS))
+
+
+def managed_copy(client, src_url: str, dst_url: str, size: int, parts: int) -> None:
+    """Server-side copy of ``src_url`` to ``dst_url``, ``parts`` parts at once.
+
+    CRC64NVME is asked for explicitly so the copy carries a full-object
+    checksum comparable with DB2's, whatever the library's own default. On
+    failure the transfer aborts its multipart upload before raising.
+    """
+    from boto3.s3.transfer import TransferConfig
+
+    src_bucket, src_key = split_s3_url(src_url)
+    bucket, key = split_s3_url(dst_url)
+    part = copy_part_size(size)
+    client.copy(
+        {"Bucket": src_bucket, "Key": src_key},
+        bucket,
+        key,
+        ExtraArgs={"ChecksumAlgorithm": "CRC64NVME"},
+        Config=TransferConfig(
+            multipart_threshold=min(COPY_THRESHOLD, part),
+            multipart_chunksize=part,
+            max_concurrency=parts,
+            use_threads=True,
+        ),
+    )
+
+
+def head_crc64nvme(client, url: str) -> tuple[str | None, str | None]:
+    """(ChecksumCRC64NVME, ChecksumType) S3 stores for an object, or Nones.
+
+    Only a FULL_OBJECT checksum is comparable with a whole-file CRC such as
+    DB2's crc64nvme_base64; a COMPOSITE one is a checksum of part checksums.
+    """
+    bucket, key = split_s3_url(url)
+    r = client.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
+    return r.get("ChecksumCRC64NVME"), r.get("ChecksumType")
 
 
 class S3MultipartWriter:

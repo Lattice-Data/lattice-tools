@@ -116,6 +116,7 @@ def _fastq_file(
         s3_uri=fobj["s3_uri"],
         size_bytes=int(fobj["file_size"]),
         reads=int(fobj["read_count"]),
+        crc64nvme=fobj.get("crc64nvme_base64") or None,
     )
 
 
