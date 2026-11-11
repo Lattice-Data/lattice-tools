@@ -312,6 +312,19 @@ def full(
         for fp in g.files
         for c in fp.chunks
     ]
+    # which object each chunk is, taken before any is read: check-submission
+    # compares it with the destination, so a chunk replaced after this
+    # verify cannot pass on this report
+    fs.invalidate_cache()
+    root = plan.dst.rstrip("/")
+    objects = (
+        {
+            s3io.basename(i["name"]): s3io.object_identity(i)
+            for i in fs.ls(root, detail=True)
+        }
+        if fs.exists(root)
+        else {}
+    )
     results: dict[tuple[str, str], FullResult | Exception] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
@@ -345,6 +358,17 @@ def full(
                         )
                     )
                     continue
+                if c.name in objects:
+                    checks.append(
+                        Check(
+                            g.group,
+                            fp.file.filename,
+                            c.name,
+                            "object",
+                            "PASS",
+                            objects[c.name],
+                        )
+                    )
                 ok = r.lines % 4 == 0
                 checks.append(
                     Check(

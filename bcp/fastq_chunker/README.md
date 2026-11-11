@@ -165,7 +165,9 @@ destination itself, not the manifest. It requires that:
 
 - the sheet's names are exactly the plan's;
 - the destination holds exactly those objects, plus `.md5` sidecars of chunks
-  and nothing else (no pre-split original, no probe, no sub-prefix);
+  and nothing else (no pre-split original, no probe, no sub-prefix). The one
+  exception is the empty marker the S3 console's "Create folder" leaves at the
+  prefix itself;
 - every copy passes the copy check above;
 - every chunk is below the limit, has its sidecar, and passed
   `verify --level full` (read count and md5) with no FAIL for it, for its
@@ -174,6 +176,9 @@ destination itself, not the manifest. It requires that:
   `part001`, not by chunk name);
 - the verify report, when given, has no FAIL anywhere and ends in an overall
   PASS, so a row the mapping misses, or a report cut short, still fails;
+- every chunk is still the object verify read. Verify records each chunk's
+  size and ETag from one listing taken before it reads anything, and a chunk
+  replaced since then fails `same_as_verified`;
 - the batch in actual bytes is within the limit.
 
 It writes `submission_report.tsv` and exits non-zero on any FAIL.
@@ -310,8 +315,10 @@ was checked. Send it with step 7's output to whoever handed you the set:
 grep -v '^nohup' $B/run.log | head -1; tail -1 $B/run.log; awk -F'\t' 'NR>1 {sub(/\r$/, ""); n++; gb+=$3/1e9; c[$7]++; s[$5]++} END {printf "%d files, %.1f GB; status:", n, gb; for (k in s) printf " %s=%d", k, s[k]; printf "; checked:"; for (k in c) printf " %s=%d", k, c[k]; print ""}' $B/run_manifest.tsv
 ```
 
-Do not create folders in the bucket from the S3 console: the marker it leaves
-fails step 7.
+Do not create folders inside a set's folder from the S3 console: the marker it
+leaves fails step 7. (One for the set's folder itself is ignored.) If a chunk
+is replaced after step 6, step 7 fails it as `same_as_verified`: run step 6
+again, then step 7.
 
 **Removing a set's folder**, when it was only a test or has to be redone from
 scratch. Deletion is permanent. Check the count and the names first; every

@@ -6,13 +6,16 @@ trusting the run manifest, and changes nothing. Every one of these must hold:
 - the plan is for this sheet: the names the plan produces (a chunk's name, or
   an unsplit file's own name) are exactly the sheet's ``filename`` cells;
 - the destination holds exactly those objects, nothing missing and nothing
-  extra; the only other objects allowed are the ``.md5`` sidecars of chunks;
+  extra; the only other objects allowed are the ``.md5`` sidecars of chunks,
+  and the empty marker the S3 console leaves at the prefix itself;
 - every unsplit file has its planned size and, when DB2 has a CRC64NVME
   for it, a full-object CRC64NVME in S3 equal to it (the ``run`` copy check);
 - every chunk is below the limit, has its sidecar, and passed ``verify
   --level full`` (read count and md5), with no FAIL for it, its file's part,
   or its part across mates (the alignment checks);
-- a verify report, when given, has no FAIL at all and ends in an overall PASS;
+- a verify report, when given, has no FAIL at all and ends in an overall PASS,
+  and records for every chunk the size and ETag of the object it read, which
+  must still be the object in the destination;
 - the batch, in actual bytes, is within the batch limit.
 """
 
@@ -58,6 +61,7 @@ class VerifyReport:
     failed: set[str]  # chunks a FAIL row names, by itself or by its part
     fails: list[tuple[str, str, str]]  # every FAIL row: (filename, chunk, check)
     overall_pass: bool  # the report ends in an overall PASS
+    objects: dict[str, str]  # chunk -> object_identity verify read
 
 
 def chunk_labels(plan: Plan) -> dict[tuple[str, str, str], list[str]]:
@@ -80,7 +84,7 @@ def chunk_labels(plan: Plan) -> dict[tuple[str, str, str], list[str]]:
 
 
 def read_verify_report(report: Path | None, plan: Plan) -> VerifyReport:
-    out = VerifyReport({}, set(), [], False)
+    out = VerifyReport({}, set(), [], False, {})
     if report is None:
         return out
     labels = chunk_labels(plan)
@@ -97,6 +101,8 @@ def read_verify_report(report: Path | None, plan: Plan) -> VerifyReport:
                 )
             elif r["status"] == "PASS" and r["check"] in FULL_CHECKS:
                 out.passed.setdefault(r["chunk"], set()).add(r["check"])
+            elif r["status"] == "PASS" and r["check"] == "object":
+                out.objects[r["chunk"]] = r["detail"]
     return out
 
 
@@ -138,13 +144,18 @@ def check(
 
     fs.invalidate_cache()
     root = plan.dst.rstrip("/")
-    listing = {}
+    own = fs._strip_protocol(root).rstrip("/")
+    listing: dict[str, dict] = {}  # name -> the listing's entry for it
     if fs.exists(root):
         for info in fs.ls(root, detail=True):
-            if info.get("type") == "directory":
-                listing[s3io.basename(info["name"]) + "/"] = 0
+            if info["name"].rstrip("/") == own and not info.get("size"):
+                # the empty marker the S3 console's "Create folder" leaves at
+                # the prefix itself: not an object anyone uploads
                 continue
-            listing[s3io.basename(info["name"])] = info.get("size") or 0
+            if info.get("type") == "directory":
+                listing[s3io.basename(info["name"]) + "/"] = info
+                continue
+            listing[s3io.basename(info["name"])] = info
     chunk_names = {n for n, v in want.items() if v[0] == "chunk"}
     allowed_extra = {n + ".md5" for n in chunk_names}
     for name in sorted(listing):
@@ -176,7 +187,7 @@ def check(
         if name not in listing:
             rows.append(Row(name, "exists", "FAIL", "missing from the destination"))
             continue
-        size = listing[name]
+        size = listing[name].get("size") or 0
         total += size
         if kind == "file":
             problem, checked = check_copy(fs, plan.dst + name, fp, s3_client)
@@ -198,6 +209,24 @@ def check(
             )
         else:
             rows.append(Row(name, "verified_full", "PASS", f"{size} bytes"))
+        if verify_report is not None:
+            # the report must be about this object, not one it replaced
+            now = s3io.object_identity(listing[name])
+            seen = report.objects.get(name)
+            if seen is None:
+                problem = "the verify report records no object for it"
+            elif seen != now:
+                problem = f"verify read {seen}, the destination holds {now}"
+            else:
+                problem = None
+            rows.append(
+                Row(
+                    name,
+                    "same_as_verified",
+                    "FAIL" if problem else "PASS",
+                    problem or now,
+                )
+            )
 
     status = "FAIL" if total > batch_limit_bytes else "PASS"
     rows.append(

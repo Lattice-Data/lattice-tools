@@ -64,14 +64,25 @@ def stage(dst: Path, plan, sidecars=True):
 
 
 def verify_report(
-    path: Path, plan, fail: str | None = None, checks=("read_count", "md5")
+    path: Path,
+    plan,
+    fail: str | None = None,
+    checks=("read_count", "md5"),
+    objects=True,
 ):
+    """A report as verify writes it; ``objects`` records each staged chunk."""
+    fs = make_fs(plan.dst)
     with open(path, "w", newline="") as f:
         w = csv.writer(f, delimiter="\t")
         w.writerow(["group", "filename", "chunk", "check", "status", "detail"])
         for g in plan.split_files():
             grp, fp = g
             for c in fp.chunks:
+                if objects and fs.exists(plan.dst + c.name):
+                    ident = s3io.object_identity(fs.info(plan.dst + c.name))
+                    w.writerow(
+                        [grp.group, fp.file.filename, c.name, "object", "PASS", ident]
+                    )
                 for chk in checks:
                     w.writerow([grp.group, fp.file.filename, c.name, chk, "PASS", ""])
                 if c.name == fail:
@@ -240,6 +251,30 @@ def test_part_level_verify_fails_reach_the_chunks(
     assert fails(run_check(plan, sheet, dst, report)) == {
         (c, "verified_full") for c in bad_chunks
     } | {("(verify report)", "verify_clean")}
+
+
+def test_a_chunk_replaced_after_verify_fails(tmp_path, monkeypatch):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    report = full_report(tmp_path / "v.tsv", plan, monkeypatch)
+    swapped = "b_R2.part002.fastq.gz"
+    (dst / swapped).write_bytes(b"a different chunk")
+    rows = run_check(plan, sheet, dst, report)
+    assert fails(rows) == {(swapped, "same_as_verified")}
+    [row] = [r for r in rows if r.name == swapped and r.check == "same_as_verified"]
+    assert "verify read size=5" in row.detail and "holds size=17" in row.detail
+
+
+def test_a_report_that_records_no_objects_fails(tmp_path):
+    # e.g. one written by a verify from before objects were recorded
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    old = verify_report(tmp_path / "v.tsv", plan, objects=False)
+    rows = run_check(plan, sheet, dst, old)
+    assert fails(rows) == {(c, "same_as_verified") for c in sheet["LIBB"]}
+    assert {r.detail for r in rows if r.check == "same_as_verified"} == {
+        "the verify report records no object for it"
+    }
 
 
 def test_any_verify_fail_or_no_overall_pass_fails_the_batch(tmp_path, monkeypatch):

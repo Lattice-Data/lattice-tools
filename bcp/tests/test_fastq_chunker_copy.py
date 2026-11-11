@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from fastq_chunker import portal, s3io
+from fastq_chunker import portal, s3io, submission
 from fastq_chunker import run as run_mod
 from fastq_chunker.cli import main
 from fastq_chunker.plan import (
@@ -632,3 +632,54 @@ def test_s3_copies_need_db2s_crc_to_skip_and_to_pass_the_gate(
     heads[plan.dst + files[1].filename] = ("BAD", "FULL_OBJECT")
     assert main(gate) == 1
     assert "CRC64NVME BAD, DB2 GOOD" in capsys.readouterr().out
+
+
+def test_the_gate_over_s3_ignores_a_console_marker_and_catches_a_swapped_chunk(
+    moto_s3, tmp_path
+):
+    """A split plan's chunks in S3: what only S3 listings show."""
+    files = [
+        FastqFile(
+            "B", slot, f"b_{m}.fastq.gz", f"s3://src/b_{m}.fastq.gz", 150 * GB, 10**7
+        )
+        for slot, m in (("read1", "R1"), ("read2", "R2"))
+    ]
+    plan = make_plan([plan_group(files)], "s3://dst/split/", 80 * GB, 100 * GB, 10**6)
+    names = [c.name for _, fp in plan.split_files() for c in fp.chunks]
+    for n in names:
+        moto_s3.put_object(Bucket="dst", Key=f"split/{n}", Body=b"chunk")
+        moto_s3.put_object(Bucket="dst", Key=f"split/{n}.md5", Body=f"x  {n}\n")
+    # what the S3 console's "Create folder" leaves, at the prefix and below it
+    moto_s3.put_object(Bucket="dst", Key="split/", Body=b"")
+    moto_s3.put_object(Bucket="dst", Key="split/sub/", Body=b"")
+    fs = s3io.make_fs(plan.dst)
+    # the rows a passing verify --level full writes for each chunk
+    report = tmp_path / "v.tsv"
+    lines = ["group\tfilename\tchunk\tcheck\tstatus\tdetail"]
+    for g, fp in plan.split_files():
+        for c in fp.chunks:
+            ident = s3io.object_identity(fs.info(plan.dst + c.name))
+            for check, detail in (("object", ident), ("read_count", ""), ("md5", "")):
+                lines.append(
+                    f"{g.group}\t{fp.file.filename}\t{c.name}\t{check}\tPASS\t{detail}"
+                )
+    lines.append("*\t*\t*\toverall\tPASS\t")
+    report.write_text("\n".join(lines) + "\n")
+    assert "etag=" in ident and not ident.endswith("etag=")  # S3 gives one
+    sheet = {"LIBB": names}
+
+    def fails():
+        rows = submission.check(plan, sheet, fs, report)
+        return {(r.name, r.check) for r in rows if r.status == "FAIL"}
+
+    # the marker at the prefix is ignored; one below it is a sub-prefix
+    assert fails() == {("sub/", "nothing_extra")}
+    moto_s3.delete_object(Bucket="dst", Key="split/sub/")
+    assert fails() == set()
+    # only an empty marker: an object with bytes at that key is still extra
+    moto_s3.put_object(Bucket="dst", Key="split/", Body=b"x")
+    assert fails() == {("split", "nothing_extra")}
+    moto_s3.put_object(Bucket="dst", Key="split/", Body=b"")
+    # same size, other bytes: only the ETag tells them apart
+    moto_s3.put_object(Bucket="dst", Key=f"split/{names[0]}", Body=b"CHUNK")
+    assert fails() == {(names[0], "same_as_verified")}

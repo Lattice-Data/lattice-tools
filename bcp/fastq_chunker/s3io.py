@@ -53,6 +53,13 @@ def basename(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1]
 
 
+def object_identity(info: dict) -> str:
+    """``size=N etag=E`` for a listing or info entry, to tell one object from
+    another that replaced it. Off S3 there is no ETag and only the size says."""
+    etag = (info.get("ETag") or "").strip('"')
+    return f"size={info.get('size') or 0} etag={etag}"
+
+
 def is_s3(fs: fsspec.AbstractFileSystem) -> bool:
     protocol = fs.protocol if isinstance(fs.protocol, tuple) else (fs.protocol,)
     return "s3" in protocol
