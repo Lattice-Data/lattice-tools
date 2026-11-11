@@ -7,10 +7,12 @@ trusting the run manifest, and changes nothing. Every one of these must hold:
   an unsplit file's own name) are exactly the sheet's ``filename`` cells;
 - the destination holds exactly those objects, nothing missing and nothing
   extra; the only other objects allowed are the ``.md5`` sidecars of chunks;
-- every unsplit file has its planned size, and its DB2 CRC64NVME where S3
-  holds a full-object checksum to compare it with (the ``run`` copy check);
+- every unsplit file has its planned size and, when DB2 has a CRC64NVME
+  for it, a full-object CRC64NVME in S3 equal to it (the ``run`` copy check);
 - every chunk is below the limit, has its sidecar, and passed ``verify
-  --level full`` (read count and md5), with no FAIL anywhere for it;
+  --level full`` (read count and md5), with no FAIL for it, its file's part,
+  or its part across mates (the alignment checks);
+- a verify report, when given, has no FAIL at all and ends in an overall PASS;
 - the batch, in actual bytes, is within the batch limit.
 """
 
@@ -50,19 +52,52 @@ def expected_names(plan: Plan) -> dict[str, tuple]:
     return out
 
 
-def verify_passes(report: Path | None) -> tuple[dict[str, set[str]], set[str]]:
-    """(chunk -> full-level checks that PASSed, chunks with any FAIL)."""
-    passed: dict[str, set[str]] = {}
-    failed: set[str] = set()
+@dataclass
+class VerifyReport:
+    passed: dict[str, set[str]]  # chunk -> full-level checks that PASSed
+    failed: set[str]  # chunks a FAIL row names, by itself or by its part
+    fails: list[tuple[str, str, str]]  # every FAIL row: (filename, chunk, check)
+    overall_pass: bool  # the report ends in an overall PASS
+
+
+def chunk_labels(plan: Plan) -> dict[tuple[str, str, str], list[str]]:
+    """(group, filename, label) -> chunks a verify row with that key is about.
+
+    ``verify --level full`` writes the mate checks (first_id_aligned,
+    last_id_aligned) with filename ``*`` and the part label (``part001``) in
+    the chunk column, and boundary_distinct with the file and the part label.
+    """
+    out: dict[tuple[str, str, str], list[str]] = {}
+    for g in plan.groups:
+        if g.action != "split":
+            continue
+        for fp in g.files:
+            for c in fp.chunks:
+                label = f"part{c.index:0{g.suffix_width}d}"
+                out.setdefault((g.group, fp.file.filename, label), []).append(c.name)
+                out.setdefault((g.group, "*", label), []).append(c.name)
+    return out
+
+
+def read_verify_report(report: Path | None, plan: Plan) -> VerifyReport:
+    out = VerifyReport({}, set(), [], False)
     if report is None:
-        return passed, failed
+        return out
+    labels = chunk_labels(plan)
     with open(report, newline="") as f:
         for r in csv.DictReader(f, delimiter="\t"):
+            if r["check"] == "overall":
+                out.overall_pass = r["status"] == "PASS"
+                continue
             if r["status"] == "FAIL":
-                failed.add(r["chunk"])
+                out.fails.append((r["filename"], r["chunk"], r["check"]))
+                out.failed.add(r["chunk"])
+                out.failed.update(
+                    labels.get((r["group"], r["filename"], r["chunk"]), [])
+                )
             elif r["status"] == "PASS" and r["check"] in FULL_CHECKS:
-                passed.setdefault(r["chunk"], set()).add(r["check"])
-    return passed, failed
+                out.passed.setdefault(r["chunk"], set()).add(r["check"])
+    return out
 
 
 def check(
@@ -118,7 +153,23 @@ def check(
         detail = "leftover probe" if name == PROBE_NAME else "not named by the sheet"
         rows.append(Row(name, "nothing_extra", "FAIL", detail))
 
-    passed, failed = verify_passes(verify_report)
+    report = read_verify_report(verify_report, plan)
+    passed, failed = report.passed, report.failed
+    if verify_report is not None:
+        # any FAIL fails the batch, whatever it names: a row the mapping to
+        # chunks above misses must still stop the upload
+        problems = [f"{f} {c} {k}" for f, c, k in report.fails]
+        if not report.overall_pass:
+            problems.append("no overall PASS line")
+        rows.append(
+            Row(
+                "(verify report)",
+                "verify_clean",
+                "FAIL" if problems else "PASS",
+                "; ".join(problems[:5])
+                + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""),
+            )
+        )
     total = 0
     for name in sorted(set(want) & set(sheet_names)):
         kind, g, fp, c = want[name]

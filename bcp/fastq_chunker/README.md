@@ -83,11 +83,18 @@ S3 each file of 64 MiB or more is copied as 128 MiB parts, `--copy-parts`
 (default 32) of them at once. One copy request moves only a few MB/s, so the
 parts are what make it fast: in the TOOLS-382 pilot a 13.4 GB file took 48
 minutes one part at a time and 2 minutes with 32 at once. Each copy
-is checked after it lands: its size must match the plan, and when S3 holds a
-full-object CRC64NVME for it and DB2 recorded one (`crc64nvme_base64`), the two
-must be equal. The manifest's `checked` column says which was compared
-(`size` or `size+crc64nvme`). A copy that fails is removed and reported, the
-other copies go on, and a rerun copies only what is missing or wrong. A copy
+is checked after it lands: its size must match the plan, and when DB2
+recorded a CRC64NVME for it (`crc64nvme_base64`), S3 must hold a full-object
+CRC64NVME equal to it. A copy S3 has no such checksum for (one uploaded some
+other way, or with a COMPOSITE checksum) cannot be compared, so it counts as
+wrong: a rerun copies it again and the gate fails it. Only without a DB2 CRC,
+or off S3, is the size alone compared. The manifest's `checked` column says
+which was compared (`size` or `size+crc64nvme`). A failed copy is reported and
+the other copies go on; what is at its target is removed only once a check
+found it wrong, never because a request failed, so a transient error leaves a
+good copy in place. A rerun copies only what is missing or wrong; the hint a
+failed run prints is the flags to add, `--copy-singletons` included. `--only`
+naming a copied file without `--copy-singletons` is refused. A copy
 gets no sidecar, since nothing reads its bytes. A plan with nothing to split
 only copies, and needs neither `pigz` nor `split`. Run under `tmux` or `nohup`, and export
 `AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs. A pipeline that is
@@ -161,7 +168,12 @@ destination itself, not the manifest. It requires that:
   and nothing else (no pre-split original, no probe, no sub-prefix);
 - every copy passes the copy check above;
 - every chunk is below the limit, has its sidecar, and passed
-  `verify --level full` (read count and md5) with no FAIL;
+  `verify --level full` (read count and md5) with no FAIL for it, for its
+  file's part (`boundary_distinct`), or for its part across mates
+  (`first_id_aligned`, `last_id_aligned`; verify writes these by part label,
+  `part001`, not by chunk name);
+- the verify report, when given, has no FAIL anywhere and ends in an overall
+  PASS, so a row the mapping misses, or a report cut short, still fails;
 - the batch in actual bytes is within the limit.
 
 It writes `submission_report.tsv` and exits non-zero on any FAIL.

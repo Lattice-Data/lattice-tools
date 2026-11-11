@@ -162,11 +162,69 @@ def test_one_failed_copy_does_not_stop_the_others(tmp_path, monkeypatch, mode, d
     assert run_plan(plan, opts(tmp_path), out=out) == 1
     text = out.getvalue()
     assert f"FAILED copy {bad}: " in text and detail in text
-    assert f"rerun with: --only {bad}" in text
+    # the hint must carry the flag: --only alone would copy nothing and exit 0
+    assert f"rerun with: --copy-singletons --only {bad}" in text
     assert not (dst / bad).exists()  # a failed copy leaves nothing behind
     rows = manifest(tmp_path / "run_manifest.tsv")
     assert rows[bad]["status"] == "failed" and rows[bad]["bytes"] == ""
     assert sum(r["status"] == "ok" for r in rows.values()) == len(rows) - 1
+
+
+def test_only_naming_an_unsplit_file_needs_copy_singletons(tmp_path):
+    plan, _, dst = make_world(tmp_path)
+    one = names(plan)[0]
+    o = opts(tmp_path, only=[one], copy_singletons=False)
+    with pytest.raises(RunError, match=f"add --copy-singletons: {one}"):
+        run_plan(plan, o, out=io.StringIO())
+    assert list(dst.iterdir()) == []
+
+
+class ErrFS:
+    """A filesystem whose size() fails for one path, as a transient error would."""
+
+    def __init__(self, fs, path: str):
+        self._fs, self._path = fs, path
+
+    def __getattr__(self, attr):
+        return getattr(self._fs, attr)
+
+    def size(self, path):
+        if path == self._path:
+            raise OSError("simulated transient error")
+        return self._fs.size(path)
+
+
+def test_an_error_while_checking_keeps_a_good_copy(tmp_path, monkeypatch):
+    plan, src, dst = make_world(tmp_path, n_sets=1)
+    assert run_plan(plan, opts(tmp_path), out=io.StringIO()) == 0
+    one = names(plan)[0]
+    real = s3io.make_fs
+    monkeypatch.setattr(s3io, "make_fs", lambda url: ErrFS(real(url), plan.dst + one))
+    out = io.StringIO()
+    assert run_plan(plan, opts(tmp_path), out=out) == 1
+    assert "simulated transient error" in out.getvalue()
+    assert (dst / one).read_bytes() == (src / one).read_bytes()
+
+
+def test_a_forced_copy_that_raises_keeps_the_copy_there(tmp_path, monkeypatch):
+    plan, src, dst = make_world(tmp_path, n_sets=1)
+    assert run_plan(plan, opts(tmp_path), out=io.StringIO()) == 0
+    one = names(plan)[0]
+    real = s3io.make_fs
+    monkeypatch.setattr(s3io, "make_fs", lambda url: FlakyFS(real(url), one, "raise"))
+    assert run_plan(plan, opts(tmp_path, force=True), out=io.StringIO()) == 1
+    assert (dst / one).read_bytes() == (src / one).read_bytes()
+
+
+def test_a_wrong_copy_is_removed_when_its_recopy_raises(tmp_path, monkeypatch):
+    plan, _, dst = make_world(tmp_path, n_sets=1)
+    assert run_plan(plan, opts(tmp_path), out=io.StringIO()) == 0
+    one = names(plan)[0]
+    (dst / one).write_bytes(b"truncated")
+    real = s3io.make_fs
+    monkeypatch.setattr(s3io, "make_fs", lambda url: FlakyFS(real(url), one, "raise"))
+    assert run_plan(plan, opts(tmp_path), out=io.StringIO()) == 1
+    assert not (dst / one).exists()
 
 
 def test_only_limits_the_copies(tmp_path):
@@ -249,11 +307,23 @@ def copied_file(tmp_path, crc="AAAAAAAAAAA="):
             "CRC64NVME BBBBBBBBBBB=, DB2 AAAAAAAAAAA=",
             CHECKED_CRC,
         ),
-        ("AAAAAAAAAAA=", "COMPOSITE", None, CHECKED_SIZE),
-        (None, None, None, CHECKED_SIZE),
+        # a copy that cannot be compared with DB2's CRC is not a good copy
+        (
+            "AAAAAAAAAAA=",
+            "COMPOSITE",
+            "S3 holds a COMPOSITE CRC64NVME, not a full-object one to compare "
+            "with DB2's",
+            CHECKED_SIZE,
+        ),
+        (
+            None,
+            None,
+            "S3 holds no CRC64NVME, not a full-object one to compare with DB2's",
+            CHECKED_SIZE,
+        ),
     ],
 )
-def test_check_copy_compares_full_object_crc_only(
+def test_check_copy_needs_an_equal_full_object_crc(
     tmp_path, monkeypatch, crc, kind, problem, checked
 ):
     fs, local_target, _, fp = copied_file(tmp_path)
@@ -421,7 +491,7 @@ def moto_s3():
                 os.environ[k] = v
 
 
-def s3_world(client, prefix: str):
+def s3_world(client, prefix: str, crc: str | None = None):
     """Three files in s3://src: one below the part threshold, two in parts."""
     files = []
     for i, size in enumerate((3 * MIB, 12 * MIB, 11 * MIB)):
@@ -429,7 +499,7 @@ def s3_world(client, prefix: str):
         data = bytes([i]) * size
         client.put_object(Bucket="src", Key=f"raw/{name}", Body=data)
         files.append(
-            FastqFile(f"G{i}", "read1", name, f"s3://src/raw/{name}", size, 1000)
+            FastqFile(f"G{i}", "read1", name, f"s3://src/raw/{name}", size, 1000, crc)
         )
     plan = make_plan(
         [plan_group([f]) for f in files], f"s3://dst/{prefix}/", 80 * GB, 100 * GB, 1
@@ -499,3 +569,66 @@ def test_a_failed_s3_copy_is_aborted_and_reported(moto_s3, tmp_path, monkeypatch
     # the multipart upload was aborted, not left behind to be billed
     uploads = moto_s3.list_multipart_uploads(Bucket="dst", Prefix="bad/")
     assert not uploads.get("Uploads")
+
+
+def test_s3_copies_need_db2s_crc_to_skip_and_to_pass_the_gate(
+    moto_s3, tmp_path, monkeypatch, capsys
+):
+    """run and check-submission end to end over S3, CRC branch included.
+
+    moto gives a copy a CRC64NVME but no ChecksumType, so what S3 would
+    answer to a HEAD is stubbed: a FULL_OBJECT CRC equal to DB2's for every
+    copy run makes, nothing for an object put there some other way.
+    """
+    plan, files = s3_world(moto_s3, "crc", crc="GOOD")
+    heads: dict[str, tuple] = {}
+    monkeypatch.setattr(
+        s3io, "head_crc64nvme", lambda client, url: heads.get(url, (None, None))
+    )
+    real_copy = s3io.managed_copy
+
+    def copy(client, src, dst, size, parts):
+        real_copy(client, src, dst, size, parts)
+        heads[dst] = ("GOOD", "FULL_OBJECT")
+
+    monkeypatch.setattr(s3io, "managed_copy", copy)
+    planted = files[0]
+    moto_s3.put_object(
+        Bucket="dst",
+        Key=f"crc/{planted.filename}",
+        Body=bytes([0]) * planted.size_bytes,  # right size, nothing to compare
+    )
+    write_plan(plan, tmp_path / "plan.json")
+    sheet = tmp_path / "sra_file_set1.csv"
+    sheet.write_text(
+        "library_ID,filename\n"
+        + "".join(f"LIB{i},{f.filename}\n" for i, f in enumerate(files))
+    )
+    gate = [
+        "check-submission",
+        "--plan",
+        str(tmp_path / "plan.json"),
+        "--sra-sheet",
+        str(sheet),
+        "--out",
+        str(tmp_path / "sub.tsv"),
+    ]
+    capsys.readouterr()
+    assert main(gate) == 1
+    assert (
+        f"FAIL {planted.filename} copy: S3 holds no CRC64NVME"
+        in capsys.readouterr().out
+    )
+
+    out = io.StringIO()
+    assert run_plan(plan, opts(tmp_path), out=out) == 0, out.getvalue()
+    assert "present, skipping" not in out.getvalue()
+    assert f"copied {planted.filename} ({CHECKED_CRC})" in out.getvalue()
+    rows = manifest(tmp_path / "run_manifest.tsv")
+    assert {r["checked"] for r in rows.values()} == {CHECKED_CRC}
+    assert main(gate) == 0
+    assert f"{{'{CHECKED_CRC}': 3}}" in capsys.readouterr().out
+
+    heads[plan.dst + files[1].filename] = ("BAD", "FULL_OBJECT")
+    assert main(gate) == 1
+    assert "CRC64NVME BAD, DB2 GOOD" in capsys.readouterr().out

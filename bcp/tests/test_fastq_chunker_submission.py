@@ -5,8 +5,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import pytest
 
-from fastq_chunker import submission
+from fastq_chunker import s3io, submission, verify
 from fastq_chunker.cli import main
 from fastq_chunker.plan import GB, FastqFile, make_plan, plan_group, write_plan
 from fastq_chunker.run import PROBE_NAME
@@ -84,6 +85,28 @@ def verify_report(
                             "x",
                         ]
                     )
+        w.writerow(["*", "*", "*", "overall", "FAIL" if fail else "PASS", ""])
+    return path
+
+
+def full_report(path: Path, plan, monkeypatch, misalign=None, repeat=()):
+    """A report from the real ``verify.full``, over chunks whose reads are faked.
+
+    ``misalign``: a chunk whose first read differs from its mate's;
+    ``repeat``: chunks whose last read starts their file's next chunk too.
+    """
+    fs = make_fs(plan.dst)
+    chunks = {c.name: c for _, fp in plan.split_files() for c in fp.chunks}
+
+    def fake_full_one(pigz, url):
+        c = chunks[s3io.basename(url)]
+        md5, _ = s3io.read_sidecar(fs, url)
+        first = "@MATE_X" if c.name == misalign else f"@READ_{c.index}"
+        last = f"@READ_{c.index + 1}" if c.name in repeat else f"@LAST_{c.index}"
+        return verify.FullResult(c.reads * 4, first, last, md5)
+
+    monkeypatch.setattr(verify, "full_one", fake_full_one)
+    verify.write_report(path, verify.full(plan, fs, "pigz", workers=1))
     return path
 
 
@@ -164,7 +187,87 @@ def test_a_quick_only_or_failing_verify_report_is_not_enough(tmp_path):
     }
     bad = verify_report(tmp_path / "f.tsv", plan, fail="b_R2.part002.fastq.gz")
     assert fails(run_check(plan, sheet, dst, bad)) == {
-        ("b_R2.part002.fastq.gz", "verified_full")
+        ("b_R2.part002.fastq.gz", "verified_full"),
+        ("(verify report)", "verify_clean"),
+    }
+
+
+def test_a_real_full_verify_report_passes(tmp_path, monkeypatch):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    rows = run_check(
+        plan, sheet, dst, full_report(tmp_path / "v.tsv", plan, monkeypatch)
+    )
+    assert fails(rows) == set()
+    assert ("(verify report)", "verify_clean") in {(r.name, r.check) for r in rows}
+
+
+@pytest.mark.parametrize(
+    "kw, verify_fails, bad_chunks",
+    [
+        # verify writes these with filename * and chunk part001: the FAIL is
+        # about the part across mates, so both mates' chunks fail
+        (
+            {"misalign": "b_R2.part001.fastq.gz"},
+            {("*", "part001", "first_id_aligned")},
+            {"b_R1.part001.fastq.gz", "b_R2.part001.fastq.gz"},
+        ),
+        # in both mates, so the mates still agree and only boundary_distinct
+        # fails: written per file, with chunk part001
+        (
+            {"repeat": ("b_R1.part001.fastq.gz", "b_R2.part001.fastq.gz")},
+            {
+                ("b_R1.fastq.gz", "part001", "boundary_distinct"),
+                ("b_R2.fastq.gz", "part001", "boundary_distinct"),
+            },
+            {"b_R1.part001.fastq.gz", "b_R2.part001.fastq.gz"},
+        ),
+    ],
+)
+def test_part_level_verify_fails_reach_the_chunks(
+    tmp_path, monkeypatch, kw, verify_fails, bad_chunks
+):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    report = full_report(tmp_path / "v.tsv", plan, monkeypatch, **kw)
+    with open(report, newline="") as f:
+        got = {
+            (r["filename"], r["chunk"], r["check"])
+            for r in csv.DictReader(f, delimiter="\t")
+            if r["status"] == "FAIL" and r["check"] != "overall"
+        }
+    assert got == verify_fails  # the rows verify really writes for this
+    assert fails(run_check(plan, sheet, dst, report)) == {
+        (c, "verified_full") for c in bad_chunks
+    } | {("(verify report)", "verify_clean")}
+
+
+def test_any_verify_fail_or_no_overall_pass_fails_the_batch(tmp_path, monkeypatch):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    good = full_report(tmp_path / "v.tsv", plan, monkeypatch)
+    lines = good.read_text().splitlines()
+    # a FAIL naming nothing the plan has still counts
+    odd = tmp_path / "odd.tsv"
+    odd.write_text("\n".join(lines[:-1] + ["Z\t*\tpart009\tx\tFAIL\t", lines[-1]]))
+    # a report cut short has no overall line
+    cut = tmp_path / "cut.tsv"
+    cut.write_text("\n".join(lines[:-1]) + "\n")
+    for report in (odd, cut):
+        assert fails(run_check(plan, sheet, dst, report)) == {
+            ("(verify report)", "verify_clean")
+        }
+
+
+def test_a_chunk_at_the_limit_fails(tmp_path):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)  # every chunk is 5 bytes
+    report = verify_report(tmp_path / "v.tsv", plan)
+    plan.limit_bytes = 6
+    assert fails(run_check(plan, sheet, dst, report)) == set()
+    plan.limit_bytes = 5  # a chunk must be below the limit, not at it
+    assert fails(run_check(plan, sheet, dst, report)) == {
+        (c, "size_below_limit") for c in sheet["LIBB"]
     }
 
 

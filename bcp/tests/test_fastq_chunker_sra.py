@@ -326,6 +326,17 @@ def test_contract_refuses_chunk_order_or_count_drift():
         sra.name_contract(contract_plan(big), big)
 
 
+def test_contract_refuses_the_right_chunks_in_the_wrong_order():
+    def big(n, stem):
+        names = [f"{stem}.part002.fastq.gz", f"{stem}.part001.fastq.gz"]
+        return fobj(n, f"{stem}.fastq.gz", size=150 * GB, reads=10_000_000, names=names)
+
+    files = [big(1, "a_R1"), big(2, "a_R2")]
+    # 150 GB is 2 chunks, as DB2 says, but DB2 lists them part002 first
+    with pytest.raises(PlanError, match="differ from DB2"):
+        sra.name_contract(contract_plan(files), files)
+
+
 def test_contract_needs_names_on_every_file_once_any_has_them():
     files = [fobj(1, "a_R1.fastq.gz"), fobj(2, "a_R2.fastq.gz")]
     del files[1]["sra_file_names"]
@@ -404,6 +415,51 @@ def test_client_needs_all_three_variables(monkeypatch):
         db2.Client("db2_test", session=object())
 
 
+class FakeResponse:
+    def __init__(self, status_code, body=None):
+        self.status_code, self.body = status_code, body or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self.body
+
+
+class FakeSession:
+    def __init__(self, response):
+        self.response, self.headers = response, {}
+
+    def get(self, url, params, timeout):
+        return self.response
+
+
+@pytest.mark.parametrize(
+    "response, want",
+    [
+        # snovault answers a search that finds nothing with 404
+        (FakeResponse(404, {"@graph": []}), []),
+        (FakeResponse(200, {"@graph": [{"uuid": "u"}]}), [{"uuid": "u"}]),
+    ],
+)
+def test_client_search_reads_the_graph_and_treats_404_as_empty(
+    monkeypatch, response, want
+):
+    for k in ("KEY", "SECRET", "SERVER"):
+        monkeypatch.setenv(f"DB2_TEST_{k}", "x")
+    client = db2.Client("db2_test", session=FakeSession(response))
+    assert client.search({"type": "SequenceFile"}) == want
+
+
+def test_client_search_raises_on_other_errors(monkeypatch):
+    for k in ("KEY", "SECRET", "SERVER"):
+        monkeypatch.setenv(f"DB2_TEST_{k}", "x")
+    client = db2.Client("db2_test", session=FakeSession(FakeResponse(500)))
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        client.search({"type": "SequenceFile"})
+
+
 class FakeClient:
     def __init__(self, objects):
         self.search = FakeSearch(objects)
@@ -425,7 +481,7 @@ def sheets(tmp_path, sheet, rows):
     return sra_path, set_path
 
 
-def resolve_args(tmp_path, sra_path, set_path):
+def resolve_args(tmp_path, sra_path, set_path, batch_limit_gb=5000.0):
     import argparse
 
     return argparse.Namespace(
@@ -433,7 +489,7 @@ def resolve_args(tmp_path, sra_path, set_path):
         set_sheet=set_path,
         mode="db2_test",
         out_dir=tmp_path / "out",
-        batch_limit_gb=5000.0,
+        batch_limit_gb=batch_limit_gb,
     )
 
 
@@ -469,4 +525,14 @@ def test_resolve_command_writes_nothing_on_a_mismatch(tmp_path):
     client = FakeClient(list(sets.values()) + list(files.values()))
     with pytest.raises(PlanError, match="LIB1: names differ"):
         cmd_resolve(resolve_args(tmp_path, sra_path, set_path), client=client)
+    assert not (tmp_path / "out").exists()
+
+
+def test_resolve_command_applies_the_batch_limit(tmp_path):
+    sheet, rows, sets, files = world()
+    sra_path, set_path = sheets(tmp_path, sheet, rows)
+    client = FakeClient(list(sets.values()) + list(files.values()))
+    args = resolve_args(tmp_path, sra_path, set_path, batch_limit_gb=11.0)
+    with pytest.raises(PlanError, match="above the 11 GB limit"):
+        cmd_resolve(args, client=client)
     assert not (tmp_path / "out").exists()
