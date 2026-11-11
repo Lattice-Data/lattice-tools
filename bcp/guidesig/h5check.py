@@ -14,14 +14,19 @@ Two scopes decide which h5 files those are:
     identical features table; reading the run-level file once per library is
     the whole guide_id check. A library with no such h5 fails, and a library
     with more than one fails as an ambiguity rather than being read.
+    ``samples`` filtering matches library folder names only.
 
 ``per-sample``
     Every ``per_sample_outs/<sample>/count/sample_filtered_feature_bc_matrix.h5``.
     Because the features table is identical across them, this is a file
     integrity sweep over an order's per-sample outputs, not a guide check: it
     catches missing, truncated or unreadable per-sample files. The sample
-    folder checks and ``samples``/``read_sample_names`` filtering belong to
-    this scope only.
+    folder checks belong to this scope only. ``samples`` filtering matches
+    either the sample folder or the library folder, so a listed library
+    selects every sample under it.
+
+Both scopes accept a ``samples`` list (see ``read_sample_names``); a listed
+name with no h5 fails.
 
 S3 listing, retry and sample/library naming are reused from ``file_extract`` so
 the two tools agree on which files an order holds and what they are called.
