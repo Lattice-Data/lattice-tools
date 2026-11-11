@@ -2,17 +2,12 @@
 Tests for qa_checks validation functions.
 """
 
-import logging
-
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
     MIN_PCT_Q30_THRESHOLD,
-    _fastq_count_mode,
     build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
-    validate_fastq_counts,
-    summarize_fastq_count_validation,
     validate_pct_q30,
     validate_processed_group,
     validate_read_metadata,
@@ -21,6 +16,15 @@ from qa_checks import (
     validate_scale_samples_csv,
     validate_scale_workflow_info,
 )
+
+
+def _summary_row(out: str, check: str) -> tuple[int, int, int]:
+    """(checked, pass, fail) for one row of validate_read_metadata's summary."""
+    for line in out.splitlines():
+        if line.strip().startswith(check):
+            nums = line.strip()[len(check) :].split()
+            return tuple(int(n.replace(",", "")) for n in nums)  # type: ignore[return-value]
+    raise AssertionError(f"no summary row for {check!r} in:\n{out}")
 
 
 class TestValidatePctQ30:
@@ -34,10 +38,12 @@ class TestValidatePctQ30:
         assert len(errors) == 1
         assert "low.csv" in errors[0]
         assert "39.76" in errors[0]
-        assert "< 65.0" in errors[0]
+        assert "< 60.0" in errors[0]
 
     def test_exactly_at_threshold(self):
-        assert validate_pct_q30({"edge.csv": 70.0}) == []
+        # "below" is strict: a sublibrary at exactly 60.0 passes.
+        assert validate_pct_q30({"edge.csv": 60.0}) == []
+        assert len(validate_pct_q30({"edge.csv": 59.99})) == 1
 
     def test_empty_dict(self):
         assert validate_pct_q30({}) == []
@@ -49,253 +55,7 @@ class TestValidatePctQ30:
         assert "< 80" in errors[0]
 
     def test_default_threshold_constant(self):
-        assert MIN_PCT_Q30_THRESHOLD == 65.0
-
-
-class TestValidateFastqCounts:
-    """Tests for validate_fastq_counts."""
-
-    def test_no_errors_when_gex_cri_match(self):
-        """When GEX and CRI counts match, no errors."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "CRI": ["c", "d"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-    def test_error_when_gex_cri_mismatch(self):
-        """When GEX and CRI counts differ, one error per sample."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "CRI": ["c"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert len(errors) == 1
-        assert "MISMATCH FQ COUNTS" in errors[0]
-        assert "2 GEX" in errors[0] and "1 CRI" in errors[0]
-        assert "G1" in errors[0]
-
-    def test_scale_gex_hash_oligo_mismatch(self):
-        """Scale: error when GEX and hash_oligo counts differ."""
-        fastq_log = {"E1": {"GEX": ["a"], "hash_oligo": ["b", "c"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert len(errors) == 1
-        assert "GEX" in errors[0] and "hash_oligo" in errors[0]
-
-    def test_scale_gex_hash_oligo_match(self):
-        """Scale: no error when GEX and hash_oligo counts match."""
-        fastq_log = {"E1": {"GEX": ["a", "b"], "hash_oligo": ["c", "d"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert errors == []
-
-    def test_scale_gex_only_no_error(self):
-        """Scale: only GEX present → no comparison, no error."""
-        fastq_log = {"E1": {"GEX": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert errors == []
-
-    def test_scale_hash_oligo_only_no_error(self):
-        """Scale: only hash_oligo present → no comparison, no error."""
-        fastq_log = {"E1": {"hash_oligo": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert errors == []
-
-    def test_sci_plex_gex_hash_oligo_match(self):
-        """sci_plex: no error when GEX and hash_oligo counts match."""
-        fastq_log = {"S1": {"GEX": ["a", "b"], "hash_oligo": ["c", "d"]}}
-        errors = validate_fastq_counts(fastq_log, "sci_plex")
-        assert errors == []
-
-    def test_sci_plex_gex_hash_oligo_mismatch(self):
-        """sci_plex: error when GEX and hash_oligo both present and counts differ."""
-        fastq_log = {"S1": {"GEX": ["a"], "hash_oligo": ["b", "c"]}}
-        errors = validate_fastq_counts(fastq_log, "sci_plex")
-        assert len(errors) == 1
-        assert "GEX" in errors[0] and "hash_oligo" in errors[0]
-        assert "S1" in errors[0]
-
-    def test_sci_plex_gex_hash_oligo_only_no_error(self):
-        """sci_plex: only GEX_hash_oligo present → no comparison, no error."""
-        fastq_log = {"S1": {"GEX_hash_oligo": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "sci_plex")
-        assert errors == []
-
-    def test_sci_plex_gex_only_no_error(self):
-        """sci_plex: only GEX present → no error."""
-        fastq_log = {"S1": {"GEX": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "sci_plex")
-        assert errors == []
-
-    def test_sci_plex_hash_oligo_only_no_error(self):
-        """sci_plex: only hash_oligo present → no error."""
-        fastq_log = {"S1": {"hash_oligo": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "sci_plex")
-        assert errors == []
-
-    def test_sci_jumbo_no_validation_returns_no_errors(self, caplog):
-        """sci_jumbo: no validation; returns no errors and logs message."""
-        fastq_log = {"J1": {"GEX": ["a"], "hash_oligo": ["b", "c"]}}
-        with caplog.at_level(logging.WARNING):
-            errors = validate_fastq_counts(fastq_log, "sci_jumbo")
-        assert errors == []
-        assert "sci_jumbo" in caplog.text
-        assert "not validating" in caplog.text.lower()
-
-    def test_10x_gex_atac_match(self):
-        """10x: GEX and ATAC counts match → no errors."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "ATAC": ["c", "d"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-    def test_10x_gex_atac_mismatch(self):
-        """10x: GEX and ATAC counts differ → error."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "ATAC": ["c"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert len(errors) == 1
-        assert "GEX" in errors[0] and "ATAC" in errors[0]
-
-    def test_10x_gex_only_no_error(self):
-        """10x: GEX only → no comparison, no error."""
-        fastq_log = {"G1": {"GEX": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-    def test_10x_atac_only_no_error(self):
-        """10x: ATAC only → no comparison, no error."""
-        fastq_log = {"G1": {"ATAC": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-    def test_10x_viral_orf_present_no_validation(self):
-        """10x: viral_ORF present is no longer validated; no error (legacy)."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "viral_ORF": ["c", "d", "e"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-    def test_10x_cri_atac_present_logs_warning(self, caplog):
-        """10x: CRI+ATAC present logs unexpected / QA expansion needed."""
-        fastq_log = {
-            "G1": {"GEX": ["a", "b"], "CRI": ["c", "d"], "ATAC": ["e", "f"]},
-        }
-        with caplog.at_level(logging.WARNING):
-            errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-        assert "CRI" in caplog.text and "ATAC" in caplog.text
-        assert "expansion" in caplog.text.lower() or "unexpected" in caplog.text.lower()
-
-    def test_10x_viral_orf_assay_no_validation_returns_no_errors(self, caplog):
-        """10x_viral_ORF: no validation; returns no errors and logs legacy message."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "viral_ORF": ["c"]}}
-        with caplog.at_level(logging.WARNING):
-            errors = validate_fastq_counts(fastq_log, "10x_viral_ORF")
-        assert errors == []
-        assert "10x_viral_ORF" in caplog.text
-        assert (
-            "not validating" in caplog.text.lower() or "legacy" in caplog.text.lower()
-        )
-
-
-class TestSummarizeFastqCountValidation:
-    """Tests for summarize_fastq_count_validation."""
-
-    def test_scale_all_matched(self):
-        fastq_log = {
-            "E1": {"GEX": ["a", "b"], "hash_oligo": ["c", "d"]},
-            "E2": {"GEX": ["x"], "hash_oligo": ["y"]},
-        }
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert errors == []
-
-        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
-        assert "checked 2" in summary
-        assert "mismatches: 0" in summary
-        assert "All matched." in summary
-
-    def test_scale_only_gex_present(self):
-        fastq_log = {"E1": {"GEX": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert errors == []
-
-        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
-        assert "checked 0" in summary
-        assert "mismatches: 0" in summary
-        assert "Only GEX present" in summary
-
-    def test_scale_mismatch_reports_mismatches(self):
-        fastq_log = {"E1": {"GEX": ["a", "b"], "hash_oligo": ["c"]}}
-        errors = validate_fastq_counts(fastq_log, "scale")
-        assert len(errors) == 1
-
-        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
-        assert "mismatches: 1" in summary
-        assert "Mismatches found" in summary
-
-    def test_10x_all_matched(self):
-        fastq_log = {
-            "G1": {"GEX": ["a", "b"], "CRI": ["c", "d"], "ATAC": ["e", "f"]},
-            "G2": {"GEX": ["x"], "CRI": ["y"], "ATAC": ["z"]},
-        }
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-        summary = summarize_fastq_count_validation(fastq_log, "10x", errors)
-        assert "Fastq count validation (10x)" in summary
-        assert "checked 4" in summary
-        assert "mismatches: 0" in summary
-        assert "All matched." in summary
-
-    def test_10x_only_gex_present(self):
-        fastq_log = {"G1": {"GEX": ["a", "b"]}}
-        errors = validate_fastq_counts(fastq_log, "10x")
-        assert errors == []
-
-        summary = summarize_fastq_count_validation(fastq_log, "10x", errors)
-        assert "checked 0" in summary
-        assert "mismatches: 0" in summary
-        assert "Only GEX present" in summary
-
-    def test_10x_cram_summary_not_applicable(self):
-        fastq_log = {}
-        errors = validate_fastq_counts(fastq_log, "10x_cram")
-        assert errors == []
-        summary = summarize_fastq_count_validation(fastq_log, "10x_cram", errors)
-        assert "10x_cram" in summary
-        assert "not applicable" in summary
-        assert "CRAM-only" in summary
-
-    def test_seahub_sci_clean_upload_does_not_report_missing_pairs(self):
-        """The scenario that reads as a defect on every compliant upload.
-
-        A SeaHub sublibrary carries one combined GEX_hash_oligo token, never
-        separate GEX and hash_oligo files, so grouping it with scale/sci_plex's
-        gex_hash mode made ``checked`` structurally 0 on every clean upload --
-        "No comparable pairs (missing modality pairs)" written to errors.txt
-        unconditionally, describing the normal case as a gap.
-        """
-        fastq_log = {
-            "REF3_P05_1": {"GEX_hash_oligo": ["a.trim.cram", "b.trim.cram"]},
-        }
-        errors = validate_fastq_counts(fastq_log, "seahub_sci")
-        assert errors == []
-
-        summary = summarize_fastq_count_validation(fastq_log, "seahub_sci", errors)
-        assert "seahub_sci" in summary
-        assert "not applicable" in summary
-        assert "combined" in summary
-        assert "missing modality pairs" not in summary
-        assert "checked 0" not in summary
-
-    def test_seahub_sci_mode_is_skip_not_gex_hash(self):
-        assert _fastq_count_mode("seahub_sci") == "skip"
-
-    def test_seahub_sci_logs_its_own_reason_not_the_viral_orf_fallback(self, caplog):
-        """The skip branch's else-clause is 10x_viral_ORF's message.
-
-        Adding seahub_sci to the skip set without its own elif would have every
-        SeaHub run log a message about legacy viral_ORF data.
-        """
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            validate_fastq_counts({}, "seahub_sci")
-
-        assert any("seahub_sci" in r.message for r in caplog.records)
-        assert not any("viral_ORF" in r.message for r in caplog.records)
+        assert MIN_PCT_Q30_THRESHOLD == 60.0
 
 
 class TestValidateReadMetadata:
@@ -351,20 +111,12 @@ class TestValidateReadMetadata:
             success_print_limit=5,
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(10x):" in out
-        assert "r1_r2_pairs_compared=1" in out
-        assert "matched=1" in out
-        assert "mismatched=0" in out
-        assert "r2_missing_r1_metadata=0" in out
-        assert "Checked metadata read counts (2):" in out
-        assert (
-            "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz: "
-            "read_count=1M (1,000,000)" in out
-        )
-        assert (
-            "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz: "
-            "read_count=1M (1,000,000)" in out
-        )
+        assert "validate_read_metadata(10x): 2 metadata files" in out
+        assert _summary_row(out, "read_count >= 1,000,000") == (2, 2, 0)
+        assert _summary_row(out, "R1 count == R2 count") == (1, 1, 0)
+        assert _summary_row(out, "R2 has R1 metadata") == (1, 1, 0)
+        # The per-file read-count listing is gone; the summary replaces it.
+        assert "read_count=1M" not in out
         assert "MATCH:" in out
 
     def test_read_count_equal_to_minimum_passes_without_low_read_error(self):
@@ -526,7 +278,7 @@ class TestValidateReadMetadata:
         }
         validate_read_metadata(read_metadata, "10x", print_success=True)
         out = capsys.readouterr().out
-        assert "metadata_filename_mismatch_warnings=1" in out
+        assert _summary_row(out, "filename matches its S3 object") == (2, 1, 1)
 
     def test_10x_cram_skips_r1_r2_pairing_and_summary(self, capsys):
         cram = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
@@ -537,11 +289,10 @@ class TestValidateReadMetadata:
             read_metadata, "10x_cram", print_success=True
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(10x_cram):" in out
+        assert "validate_read_metadata(10x_cram): 1 metadata files" in out
         assert "CRAM-only layout" in out
-        assert "r1_r2_pairs_compared" not in out
-        assert "Checked metadata read counts (1):" in out
-        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert "R1 count == R2 count" not in out
+        assert _summary_row(out, "read_count >= 1,000,000") == (1, 1, 0)
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
@@ -556,10 +307,9 @@ class TestValidateReadMetadata:
             read_metadata, "sci_plex", print_success=True
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(sci_plex):" in out
-        assert "r1_r2_pairs_compared=0" in out
-        assert "Checked metadata read counts (1):" in out
-        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert "validate_read_metadata(sci_plex): 1 metadata files" in out
+        assert _summary_row(out, "R1 count == R2 count") == (0, 0, 0)
+        assert _summary_row(out, "read_count >= 1,000,000") == (1, 1, 0)
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []

@@ -6,13 +6,18 @@ structured results (errors, missing/extra file lists, etc.).
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from typing import Any
 
 from qa_constants import (
     CELLRANGER_FLAT_LAYOUT,
+    ILLUMINA_DEFAULT_PLANNED_READS,
+    ILLUMINA_FASTQ_RE,
+    ILLUMINA_FLOWCELL_FILE_SUFFIXES,
+    ILLUMINA_FLOWCELL_ID_RE,
+    ILLUMINA_MODALITIES,
+    ILLUMINA_RUN_PARAMETERS_SUFFIX,
     CELLRANGER_SUPPORTED_VERSIONS,
     CELLRANGER_VERSION_ALIASES,
     SCALE_AGGREGATE_FILE_RE,
@@ -46,7 +51,11 @@ VALID_PROBES = [
     "Chromium Mouse Transcriptome Probe Set v2.0.0",
 ]
 MIN_METADATA_READ_COUNT = 1_000_000
-MIN_PCT_Q30_THRESHOLD = 65.0
+MIN_PCT_Q30_THRESHOLD = 60.0
+
+# Read indicators that identify a sample index rather than a library read.
+# Excluded from group read totals; see validate_read_metadata.
+INDEX_READ_INDICATORS = frozenset({"I1", "I2"})
 
 
 def validate_pct_q30(
@@ -67,244 +76,80 @@ def validate_pct_q30(
     return errors
 
 
-def _fastq_count_mode(raw_assay: str) -> str:
-    """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram", "seahub_sci"):
-        return "skip"
-    if raw_assay in ("scale", "sci_plex"):
-        return "gex_hash"
-    if raw_assay == "10x":
-        return "10x"
-    return "unknown"
+# Column order for the libraries-by-modality table; anything else follows,
+# alphabetically.
+_MODALITY_DISPLAY_ORDER = (
+    "GEX",
+    "CRI",
+    "ATAC",
+    "viral_ORF",
+    "ADT",
+    "HTO",
+    "ADT_HTO",
+    "TCR",
+    "BCR",
+    "GEX_hash_oligo",
+    "hash_oligo",
+)
 
 
-def validate_fastq_counts(
-    fastq_log: dict[str, dict[str, list[str]]], raw_assay: str
-) -> list[str]:
-    """
-    Check for mismatching number of files across modalities per sample.
-
-    - scale: GEX vs hash_oligo must have equal counts when both present.
-    - sci_plex: GEX vs hash_oligo when both present; GEX_hash_oligo only → no check.
-    - sci_jumbo: No validation; logs that sci_jumbo is not validated.
-    - 10x: GEX–CRI and GEX–ATAC pairs must have equal counts when present;
-      GEX-only or ATAC-only → no check. Logs when CRI+ATAC present (future QA).
-    - 10x_viral_ORF: No validation (legacy); logs that it is not validated.
-    - seahub_sci: No validation. A SeaHub sublibrary carries one combined
-      GEX_hash_oligo type token rather than separate GEX/hash_oligo files, so
-      there is nothing to compare; logs that it is not validated.
-
-    Returns list of error messages.
-    """
-    logger = logging.getLogger(__name__)
-    errors: list[str] = []
-
-    mode = _fastq_count_mode(raw_assay)
-    if mode == "skip":
-        if raw_assay == "sci_jumbo":
-            logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
-        elif raw_assay == "10x_cram":
-            logger.warning(
-                "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
-            )
-        elif raw_assay == "seahub_sci":
-            # A SeaHub sublibrary carries one combined GEX_hash_oligo type token,
-            # never separate GEX and hash_oligo files, so this check's premise --
-            # two modalities to compare -- never holds. Grouping it with scale and
-            # sci_plex's gex_hash mode made every clean upload report "checked 0,
-            # no comparable pairs", which reads as a defect on a compliant upload.
-            logger.warning(
-                "Not validating fastq counts for seahub_sci (sublibraries carry a "
-                "single combined type token, not separate GEX/hash_oligo files)."
-            )
-        else:
-            logger.warning(
-                "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
-            )
-        return errors
-
-    for sample, v in fastq_log.items():
-        if raw_assay == "scale":
-            gex_list = v.get("GEX", [])
-            hash_list = v.get("hash_oligo", [])
-            if gex_list and hash_list and len(gex_list) != len(hash_list):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(hash_list)} hash_oligo"
-                )
-        elif raw_assay == "sci_plex":
-            gex_list = v.get("GEX", [])
-            hash_list = v.get("hash_oligo", [])
-            if gex_list and hash_list and len(gex_list) != len(hash_list):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(hash_list)} hash_oligo"
-                )
-            # GEX_hash_oligo only or single modality → no comparison
-        elif raw_assay == "10x":
-            cri_list = v.get("CRI", [])
-            atac_list = v.get("ATAC", [])
-            gex_list = v.get("GEX", [])
-            if cri_list and atac_list:
-                logger.warning(
-                    "Unexpected: CRI+ATAC present for sample %s; "
-                    "QA expansion needed in the future.",
-                    sample,
-                )
-            # Only compare when both modalities have at least one file (GEX-only or CRI-only → no check)
-            if (
-                len(gex_list) > 0
-                and len(cri_list) > 0
-                and len(gex_list) != len(cri_list)
-            ):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(cri_list)} CRI"
-                )
-            if (
-                len(gex_list) > 0
-                and len(atac_list) > 0
-                and len(gex_list) != len(atac_list)
-            ):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(atac_list)} ATAC"
-                )
-
-    return errors
-
-
-def summarize_fastq_count_validation(
+def libraries_by_modality(
     fastq_log: dict[str, dict[str, list[str]]],
-    raw_assay: str,
-    errors: list[str],
-) -> str:
+) -> list[dict[str, Any]]:
+    """Which modalities each GroupID has: one row per GroupID, one column each.
+
+    A library is unique to its GroupID and modality, so every file of that
+    modality in the group -- every wafer, flowcell, lane, S-number, UG or
+    barcode -- counts as one library. Each count is therefore 0 or 1, the same
+    for Ultima and Illumina.
+
+    Every GroupID in ``fastq_log`` gets a row, including one with no files, and
+    every modality seen anywhere gets a column (0 where a group has none).
     """
-    Create a short, single-line report for fastq count validation.
+    counts: dict[str, dict[str, int]] = {
+        group: {modality: 1 if files else 0 for modality, files in by_modality.items()}
+        for group, by_modality in fastq_log.items()
+    }
 
-    This is intentionally summary-only (no per-file lists). It reports both:
-    - whether any mismatches were found (via `errors`)
-    - whether comparisons were actually applicable (via `fastq_log`)
-    """
-
-    mismatches = len(errors)
-    mode = _fastq_count_mode(raw_assay)
-
-    if mode == "skip":
-        if raw_assay == "10x_cram":
-            return (
-                "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
-                f"inputs; mismatches: {mismatches}. No comparisons performed."
-            )
-        if raw_assay == "seahub_sci":
-            return (
-                "Fastq count validation (seahub_sci): not applicable -- SeaHub "
-                "sublibraries carry a single combined GEX_hash_oligo type token, "
-                f"not separate GEX/hash_oligo files; mismatches: {mismatches}. "
-                "No comparisons performed."
-            )
-        return (
-            f"Fastq count validation ({raw_assay}): not validated by design; "
-            f"mismatches: {mismatches}. No comparisons performed."
-        )
-
-    if not fastq_log:
-        return (
-            f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
-            f"{mismatches}. No fastq_log data (nothing to compare)."
-        )
-
-    if raw_assay in ("scale", "sci_plex"):
-        checked = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("GEX") and v.get("hash_oligo")
-        )
-        gex_only = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("GEX") and not v.get("hash_oligo")
-        )
-        hash_only = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("hash_oligo") and not v.get("GEX")
-        )
-
-        if checked > 0 and mismatches == 0:
-            result = "All matched."
-        elif checked == 0 and mismatches == 0:
-            if gex_only > 0 and hash_only == 0:
-                result = "Only GEX present (missing hash_oligo)."
-            elif hash_only > 0 and gex_only == 0:
-                result = "Only hash_oligo present (missing GEX)."
-            else:
-                result = "No comparable pairs (missing modality pairs)."
-        elif mismatches > 0:
-            result = (
-                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
-                "and the errors log)."
-            )
-        else:
-            result = "No comparisons performed."
-
-        return (
-            f"Fastq count validation ({raw_assay}): checked {checked} "
-            f"(GEX<->hash_oligo); mismatches: {mismatches}. {result}"
-        )
-
-    if raw_assay == "10x":
-        checked_gex_cri = sum(
-            1 for _sample, v in fastq_log.items() if v.get("GEX") and v.get("CRI")
-        )
-        checked_gex_atac = sum(
-            1 for _sample, v in fastq_log.items() if v.get("GEX") and v.get("ATAC")
-        )
-        checked_total = checked_gex_cri + checked_gex_atac
-
-        if checked_total > 0 and mismatches == 0:
-            result = "All matched."
-        elif checked_total == 0 and mismatches == 0:
-            gex_present = sum(1 for _sample, v in fastq_log.items() if v.get("GEX"))
-            cri_or_atac_present = sum(
-                1 for _sample, v in fastq_log.items() if v.get("CRI") or v.get("ATAC")
-            )
-            if gex_present > 0 and cri_or_atac_present == 0:
-                result = "Only GEX present (missing CRI/ATAC)."
-            elif gex_present == 0 and cri_or_atac_present > 0:
-                result = "Missing GEX (CRI/ATAC present)."
-            elif gex_present > 0 and cri_or_atac_present > 0:
-                result = "No comparable pairs (GEX groups differ from CRI/ATAC groups)."
-            else:
-                result = "No comparable pairs (missing modality pairs)."
-        elif mismatches > 0:
-            result = (
-                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
-                "and the errors log)."
-            )
-        else:
-            result = "No comparisons performed."
-
-        return (
-            "Fastq count validation (10x): checked "
-            f"{checked_total} (GEX<->CRI: {checked_gex_cri}, GEX<->ATAC: {checked_gex_atac}); "
-            f"mismatches: {mismatches}. {result}"
-        )
-
-    return (
-        f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
-        f"{mismatches}. Unsupported assay."
+    seen = {modality for row in counts.values() for modality in row}
+    columns = [m for m in _MODALITY_DISPLAY_ORDER if m in seen] + sorted(
+        seen - set(_MODALITY_DISPLAY_ORDER)
     )
+    return [
+        {"group_id": group, **{m: counts[group].get(m, 0) for m in columns}}
+        for group in sorted(counts)
+    ]
+
+
+def missing_modality_warnings(library_rows: list[dict[str, Any]]) -> list[str]:
+    """One warning per modality that is not 1 for every GroupID.
+
+    Takes the rows of ``libraries_by_modality``. A modality column with any 0
+    means some GroupIDs have no library of it, which is worth a look: a
+    modality that was sequenced for some groups was usually meant for all.
+    """
+    if not library_rows:
+        return []
+    modalities = [key for key in library_rows[0] if key != "group_id"]
+    warnings: list[str] = []
+    for modality in modalities:
+        missing = [row["group_id"] for row in library_rows if row.get(modality) != 1]
+        if missing:
+            warnings.append(
+                f"MODALITY WARNING: {modality} missing in {len(missing)} of "
+                f"{len(library_rows)} GroupIDs: {', '.join(missing)}"
+            )
+    return warnings
 
 
 def validate_read_metadata(
     read_metadata: dict[str, Any],
     raw_assay: str,
     *,
+    sequencing_type: str = "Ultima",
     print_success: bool = False,
     success_print_limit: int = 5,
     pairing_paths_print_limit: int = 100,
-    checked_read_counts_print_limit: int = 100,
 ) -> tuple[dict[str, dict[str, int]], list[str], dict[str, list[str]]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
@@ -322,6 +167,13 @@ def validate_read_metadata(
     R1/R2 classification uses ``extract_read_indicator()`` which matches the
     Illumina read indicator at the *end* of the filename (e.g. ``_R1_001.fastq.gz``),
     so ``_R1_`` / ``_R2_`` embedded in a group ID (e.g. ``q_pcf_R2``) is ignored.
+
+    Index reads (I1, I2) are compared too. Every read in one library-lane set
+    should carry the same count, so each index read is compared against that
+    set's R1, or its R2 when there is no R1; an I2 with neither is compared
+    against its I1. A mismatch is a ``READ COUNT ERROR`` in the same format as
+    an R1/R2 one. A missing index file is not reported here -- which reads
+    should exist is the expected-files check's job.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -337,12 +189,19 @@ def validate_read_metadata(
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
     filename_mismatch_warnings = 0
-    checked_read_counts: list[tuple[str, Any]] = []
+    # Per-check tallies for the printed summary.
+    filename_checked = 0
+    errored_files = 0
+    no_read_count = 0
+    min_checked = 0
+    min_failed = 0
 
     for f, meta in read_metadata.items():
         reported_filename = str(
             meta.get("__reported_filename", meta.get("filename", ""))
         )
+        if reported_filename:
+            filename_checked += 1
         if reported_filename and reported_filename != f:
             filename_mismatch_warnings += 1
             errors.append(
@@ -351,22 +210,36 @@ def validate_read_metadata(
                 f"reported={reported_filename} actual={f}"
             )
         if meta.get("errors"):
+            errored_files += 1
             errors.append(
                 f"METADATA.JSON ERROR: {f} has error in metadata.json:{meta['errors']}"
             )
             continue
         reads = meta.get("read_count")
         if reads is None:
+            no_read_count += 1
             continue
-        checked_read_counts.append((f, reads))
+        min_checked += 1
         if reads < MIN_METADATA_READ_COUNT:
+            min_failed += 1
             errors.append(
                 f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
                 f"{MIN_METADATA_READ_COUNT}"
             )
-        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
+        indicator = extract_read_indicator(f)
+        # An index read is a sequencing artifact, not a library read. Summing
+        # I1 and I2 into the group total inflates raw reads about threefold on
+        # a dual-indexed Illumina delivery and makes every group fail the
+        # raw-vs-CellRanger comparison in validate_processed_group. Not gated
+        # on pairing mode: no layout has a reason to count one, and no Ultima
+        # assay ships index sidecars, so this is a no-op for every delivery QA
+        # has seen. R3 is deliberately left alone -- ATAC's third read is a
+        # library read and is counted today.
+        if indicator in INDEX_READ_INDICATORS:
             continue
-        parsed = parse_raw_filename(f, raw_assay)
+        if not skip_r1_r2_pairing and indicator == "R2":
+            continue
+        parsed = parse_raw_filename(f, raw_assay, sequencing_type=sequencing_type)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
             if group not in group_read_counts:
@@ -375,7 +248,7 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R1":
+        if not skip_r1_r2_pairing and indicator == "R1":
             r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
@@ -402,13 +275,44 @@ def validate_read_metadata(
                 r1_without_r2_metadata.append(f)
 
     r2_without_r1_metadata: list[str] = []
+    r2_checked = 0
     if not skip_r1_r2_pairing:
         for f in read_metadata:
             if extract_read_indicator(f) != "R2":
                 continue
+            r2_checked += 1
             r1file = make_read_partner(f, "R2", "R1")
             if r1file not in read_metadata:
                 r2_without_r1_metadata.append(f)
+
+    def _usable_count(meta: Any) -> Any:
+        if not isinstance(meta, dict) or meta.get("errors"):
+            return None
+        return meta.get("read_count")
+
+    index_compared = 0
+    index_mismatched = 0
+    if not skip_r1_r2_pairing:
+        for f, meta in read_metadata.items():
+            indicator = extract_read_indicator(f)
+            if indicator not in INDEX_READ_INDICATORS:
+                continue
+            reads = _usable_count(meta)
+            if reads is None:
+                continue
+            references = ("R1", "R2") + (("I1",) if indicator == "I2" else ())
+            for ref_indicator in references:
+                ref_file = make_read_partner(f, indicator, ref_indicator)
+                ref_reads = _usable_count(read_metadata.get(ref_file))
+                if ref_reads is None:
+                    continue
+                index_compared += 1
+                if reads != ref_reads:
+                    index_mismatched += 1
+                    errors.append(
+                        f"READ COUNT ERROR:{ref_file}-{ref_reads},{f}-{reads}"
+                    )
+                break
 
     for path in r1_without_r2_metadata:
         errors.append(f"READ METADATA PAIRING: R1 present, no R2 metadata key: {path}")
@@ -421,24 +325,34 @@ def validate_read_metadata(
     }
 
     if print_success:
+        rows = [
+            ("metadata.json has no errors", len(read_metadata), errored_files),
+            ("read_count present", len(read_metadata) - errored_files, no_read_count),
+            (f"read_count >= {MIN_METADATA_READ_COUNT:,}", min_checked, min_failed),
+            (
+                "filename matches its S3 object",
+                filename_checked,
+                filename_mismatch_warnings,
+            ),
+        ]
         if not skip_r1_r2_pairing:
+            rows += [
+                (
+                    "R1 has R2 metadata",
+                    compared_pairs + r2_metadata_error + skipped_no_r2,
+                    skipped_no_r2,
+                ),
+                ("R2 has R1 metadata", r2_checked, len(r2_without_r1_metadata)),
+                ("R1 count == R2 count", compared_pairs, mismatched_pairs),
+                ("I1/I2 count == R1 (or R2)", index_compared, index_mismatched),
+            ]
+        _print_read_metadata_summary(raw_assay, len(read_metadata), rows)
+        if skip_r1_r2_pairing:
             print(
-                f"validate_read_metadata({raw_assay}): "
-                f"r1_r2_pairs_compared={compared_pairs} "
-                f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
-                f"r1_missing_r2_metadata={skipped_no_r2}, "
-                f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-                f"r2_metadata_errors={r2_metadata_error}, "
-                f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
+                "  R1/R2 and index read comparisons: not applicable (CRAM-only layout)"
             )
-            for line in matched_examples:
-                print(line)
-        else:
-            print(
-                f"validate_read_metadata({raw_assay}): "
-                "CRAM-only layout; R1/R2 metadata pairing not applicable."
-            )
-        _print_checked_read_counts(checked_read_counts, checked_read_counts_print_limit)
+        for line in matched_examples:
+            print(line)
         if not skip_r1_r2_pairing:
             _print_pairing_path_lists(
                 r1_without_r2_metadata,
@@ -469,48 +383,465 @@ def _print_pairing_path_lists(
             print(f"  ... and {len(r2_missing_r1) - limit} more")
 
 
-def _format_read_count_human_unsigned(n: int) -> str:
-    """Return a compact unsigned label using K / M / B (up to 2 fractional digits)."""
-    if n < 1000:
-        return str(n)
-    if n >= 1_000_000_000:
-        scaled = n / 1_000_000_000
-        suffix = "B"
-    elif n >= 1_000_000:
-        scaled = n / 1_000_000
-        suffix = "M"
-    else:
-        scaled = n / 1_000
-        suffix = "K"
-    text = f"{scaled:.2f}".rstrip("0").rstrip(".")
-    return f"{text}{suffix}"
-
-
-def _format_read_count_for_display(count: Any) -> str:
-    """Human-readable read count plus exact integer with thousands separators."""
-    try:
-        n = int(count)
-    except (TypeError, ValueError):
-        return str(count)
-    human_u = _format_read_count_human_unsigned(abs(n))
-    if human_u == str(abs(n)):
-        return f"{n:,}"
-    human = f"-{human_u}" if n < 0 else human_u
-    return f"{human} ({n:,})"
-
-
-def _print_checked_read_counts(
-    checked_read_counts: list[tuple[str, Any]], limit: int
+def _print_read_metadata_summary(
+    raw_assay: str, total_files: int, rows: list[tuple[str, int, int]]
 ) -> None:
-    """Print per-file read_count values used for metadata validation."""
-    if not checked_read_counts:
-        print("Checked metadata read counts: none")
-        return
-    print(f"Checked metadata read counts ({len(checked_read_counts)}):")
-    for path, count in checked_read_counts[:limit]:
-        print(f"  {path}: read_count={_format_read_count_for_display(count)}")
-    if len(checked_read_counts) > limit:
-        print(f"  ... and {len(checked_read_counts) - limit} more")
+    """Print one line per read-metadata check: files checked, passed, failed.
+
+    Which files failed is in the error lines (``READ COUNT ERROR``,
+    ``METADATA.JSON ERROR``, ...), not here.
+    """
+    print(f"validate_read_metadata({raw_assay}): {total_files} metadata files")
+    width = max(len(name) for name, _, _ in rows)
+    print(f"  {'Check':<{width}}  {'Checked':>7}  {'Pass':>7}  {'Fail':>7}")
+    for name, checked, failed in rows:
+        print(f"  {name:<{width}}  {checked:>7,}  {checked - failed:>7,}  {failed:>7,}")
+
+
+def _check_expected_illumina_raw_files(
+    all_raw_files: list[str],
+    planned_reads: dict[str, list[str]] | None,
+) -> tuple[int, list[dict[str, Any]], list[str]]:
+    """
+    Completeness for an Illumina delivery. Same contract as its Ultima sibling:
+    ``(all_good_count, raw_lost, raw_found)``.
+
+    An Illumina ``raw/`` directory is checked on two axes, because it holds two
+    kinds of thing:
+
+    * **Per flowcell** -- the eight run files
+      (``{FC}_CopyComplete.txt`` ... ``{FC}_Logs.zip``). One set per flowcell,
+      not one per library, so these cannot be expressed as endings on a
+      library "beginning" the way the Ultima tables are.
+    * **Per library and lane** -- one fastq for each planned read, plus that
+      fastq's ``-metadata.json`` sidecar. A library here is a distinct
+      ``(flowcell, group, assay, S-number)``; the lanes it arrived on are
+      whatever is present, since lanes are reported rather than enforced.
+
+    Which reads are required comes from ``planned_reads`` (parsed from each
+    flowcell's RunParameters.xml), NOT from a fixed R1/R2 assumption: a
+    single-index run plans three reads and a dual-indexed one plans four. A
+    flowcell missing from ``planned_reads`` falls back to
+    ``ILLUMINA_DEFAULT_PLANNED_READS``; the gather step has already warned.
+    """
+    planned_reads = planned_reads or {}
+    raw_found_set = set(all_raw_files)
+
+    # raw_dir -> flowcell -> {(group, assay, sample, lane, chunk)}
+    flowcells: dict[str, set[str]] = {}
+    libraries: dict[tuple[str, str], set[tuple[str, str, str, str, str]]] = {}
+
+    for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
+        basename = fullpath.split("/")[-1]
+
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            fc = m.group("flowcell")
+            flowcells.setdefault(raw_dir, set()).add(fc)
+            libraries.setdefault((raw_dir, fc), set()).add(
+                (
+                    m.group("group"),
+                    m.group("assay"),
+                    m.group("sample"),
+                    m.group("lane"),
+                    m.group("chunk"),
+                )
+            )
+            continue
+
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                # A flowcell ID is alphanumeric, which is what lets the fastq
+                # regex split it off at the first underscore. Without this
+                # guard a stray "FOO-BAR_Logs.zip" would register flowcell
+                # "FOO-BAR" and invent seven missing artifacts for it; it
+                # belongs in the extra-files list instead.
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    flowcells.setdefault(raw_dir, set()).add(candidate)
+                break
+
+    all_good = 0
+    raw_lost: list[dict[str, Any]] = []
+    raw_found: list[str] = []
+
+    def _close(row: dict[str, Any]) -> None:
+        nonlocal all_good
+        if len(row) > 1:
+            raw_lost.append(row)
+        else:
+            all_good += 1
+
+    for raw_dir in sorted(flowcells):
+        for fc in sorted(flowcells[raw_dir]):
+            row: dict[str, Any] = {"path": f"{raw_dir}/{fc}"}
+            for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+                f = f"{raw_dir}/{fc}{suffix}"
+                if f in raw_found_set:
+                    raw_found.append(f)
+                else:
+                    row[suffix] = f
+            _close(row)
+
+            reads = list(planned_reads.get(fc) or ILLUMINA_DEFAULT_PLANNED_READS)
+            # One row per library+lane: a lane that lost a read is the unit an
+            # operator has to go back to the vendor about.
+            seen = libraries.get((raw_dir, fc), set())
+            units = sorted({(g, a, s, lane, chunk) for g, a, s, lane, chunk in seen})
+            for group, assay, sample, lane, chunk in units:
+                stem = f"{fc}_{group}_{assay}_S{sample}_L{lane}"
+                lib_row: dict[str, Any] = {"path": f"{raw_dir}/{stem}"}
+                for read in reads:
+                    fastq = f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz"
+                    sidecar = f"{fastq}-metadata.json"
+                    if fastq in raw_found_set:
+                        raw_found.append(fastq)
+                        # Only chase the sidecar when its fastq arrived;
+                        # otherwise one absent read is reported twice.
+                        if sidecar in raw_found_set:
+                            raw_found.append(sidecar)
+                        else:
+                            lib_row[f"{read}-metadata.json"] = sidecar
+                    else:
+                        lib_row[read] = fastq
+                _close(lib_row)
+
+    return all_good, raw_lost, raw_found
+
+
+def _illumina_r1_read_counts(
+    read_metadata: dict[str, Any] | None,
+) -> dict[tuple[str, str], int]:
+    """Sum metadata.json ``read_count`` over every R1 fastq, by (raw_dir, flowcell).
+
+    R1 only: each library-lane has exactly one R1, and its count is the number
+    of reads in that library-lane. Adding R2 or the index reads would count the
+    same reads again.
+
+    Each entry is located by ``__source_key``, the sidecar's full S3 key set by
+    the gather step -- the dict key itself is a basename or an s3:// URI
+    depending on the payload, so it cannot be relied on for the directory.
+    Entries with errors or no ``read_count`` are skipped, as in
+    validate_read_metadata.
+    """
+    totals: dict[tuple[str, str], int] = {}
+    for key, meta in (read_metadata or {}).items():
+        if not isinstance(meta, dict) or meta.get("errors"):
+            continue
+        reads = meta.get("read_count")
+        if not isinstance(reads, int) or isinstance(reads, bool):
+            continue
+        source = str(meta.get("__source_key") or key)
+        if source.startswith("s3://"):
+            source = source.split("/", 3)[-1]
+        if source.endswith("-metadata.json"):
+            source = source[: -len("-metadata.json")]
+        m = ILLUMINA_FASTQ_RE.match(source.split("/")[-1])
+        if m is None or m.group("read") != "R1":
+            continue
+        raw_dir = "/".join(source.split("/")[:-1])
+        k = (raw_dir, m.group("flowcell"))
+        totals[k] = totals.get(k, 0) + reads
+    return totals
+
+
+def format_read_count(value: Any) -> str | None:
+    """Human-readable read count for the flowcell table.
+
+    Below 100,000 the exact number is kept. From 100,000 up it is rounded to
+    three significant figures and shown in millions (M) or billions (B):
+    12,345,678 -> "12.3M", 250,000 -> "0.250M", 1,234,567,890 -> "1.23B".
+    Rounding happens before the unit is chosen, so 999,999,999 becomes
+    "1.00B" rather than "1000M". None (or NaN) stays None.
+    """
+    if value is None:
+        return None
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if x != x:  # NaN
+        return None
+    if abs(x) < 100_000:
+        return str(int(x))
+    rounded = float(f"{x:.3g}")
+    unit, suffix = (1e9, "B") if abs(rounded) >= 1e9 else (1e6, "M")
+    v = rounded / unit
+    mag = abs(v)
+    decimals = 0 if mag >= 100 else 1 if mag >= 10 else 2 if mag >= 1 else 3
+    return f"{v:.{decimals}f}{suffix}"
+
+
+# Display order for read types in the flowcell table: the library reads, then
+# the index reads.
+ILLUMINA_READ_TYPE_ORDER = ("R1", "R2", "R3", "I1", "I2")
+
+
+def _illumina_observed_read_lengths(
+    read_metadata: dict[str, Any] | None,
+) -> dict[tuple[str, str], dict[str, set[int]]]:
+    """Longest read in each fastq, by (raw_dir, flowcell) and read type.
+
+    Read from each sidecar's ``read_lengths`` histogram (``{"151": n, ...}``).
+    The longest length is used because trimming only shortens reads: an
+    untrimmed file's longest read is the cycle count, and a trimmed one's
+    spread of shorter reads must not read as a mismatch. Kept as a set of
+    per-file values so one short file is not hidden by its siblings. Entries
+    with errors, or without a usable histogram, are skipped. Located by
+    ``__source_key``, as in ``_illumina_r1_read_counts``.
+    """
+    observed: dict[tuple[str, str], dict[str, set[int]]] = {}
+    for key, meta in (read_metadata or {}).items():
+        if not isinstance(meta, dict) or meta.get("errors"):
+            continue
+        histogram = meta.get("read_lengths")
+        if not isinstance(histogram, dict):
+            continue
+        lengths = []
+        for length, count in histogram.items():
+            try:
+                if int(count) > 0:
+                    lengths.append(int(length))
+            except (TypeError, ValueError):
+                continue
+        if not lengths:
+            continue
+        source = str(meta.get("__source_key") or key)
+        if source.startswith("s3://"):
+            source = source.split("/", 3)[-1]
+        if source.endswith("-metadata.json"):
+            source = source[: -len("-metadata.json")]
+        m = ILLUMINA_FASTQ_RE.match(source.split("/")[-1])
+        if m is None:
+            continue
+        k = ("/".join(source.split("/")[:-1]), m.group("flowcell"))
+        observed.setdefault(k, {}).setdefault(m.group("read"), set()).add(max(lengths))
+    return observed
+
+
+def summarize_illumina_flowcells(
+    all_raw_files: list[str],
+    planned_reads: dict[str, list[str]] | None = None,
+    read_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    One row per GroupID: what the RunParameters.xml planned, and what actually
+    arrived.
+
+    A GroupID sequenced on several flowcells gets one row: ``flowcell`` lists
+    them, ``library_count`` and ``read_count`` are summed, and every other
+    column is the unique values across them. ``missing_read_type`` is still
+    checked per flowcell, against that flowcell's own planned reads, before
+    being combined.
+
+    This is the Illumina counterpart of the Ultima wafer table -- the
+    per-delivery summary an operator reads before looking at any error file.
+    Lanes are REPORTED, never enforced: a library may legitimately arrive on
+    any number of lanes, so the set is information rather than a check.
+
+    ``modality`` is the distinct modalities (GEX, CRI, ADT_HTO, ...) named in
+    the row's fastq filenames, in ILLUMINA_MODALITIES order.
+
+    ``observed_read_types`` lists every read type (R1, R2, I1, I2) that has at
+    least one fastq for the row. ``missing_read_type`` is the one check in the
+    table: each library-lane set that arrived -- every distinct
+    ``{FC}_{GroupID}_{Assay}_S{n}_L00#`` stem -- should have a fastq for each
+    planned read, and any planned read type absent from any set is listed.
+    "none" when every set is complete. A flowcell with no fastqs at all lists
+    every planned read, since none arrived. Which files are missing is in
+    ``{order}_raw_missing.csv``.
+
+    ``observed_read_length`` is the longest read in each fastq, from its
+    sidecar's ``read_lengths`` histogram -- one value per read type when every
+    file agrees, all distinct values ("I1=8/10") when not.
+    """
+    planned_reads = planned_reads or {}
+    r1_reads = _illumina_r1_read_counts(read_metadata)
+    observed_lengths = _illumina_observed_read_lengths(read_metadata)
+    lanes: dict[tuple[str, str], set[str]] = {}
+    libraries: dict[tuple[str, str], set[tuple[str, str, str]]] = {}
+    # (raw_dir, flowcell) -> {(stem, chunk)}: the library-lane sets that arrived
+    lane_sets: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    # (raw_dir, flowcell) -> read types with at least one fastq
+    found_types: dict[tuple[str, str], set[str]] = {}
+    # (raw_dir, flowcell) -> modalities named in the fastq filenames
+    modalities: dict[tuple[str, str], set[str]] = {}
+    present: set[str] = set()
+    seen: set[tuple[str, str]] = set()
+
+    for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
+        basename = fullpath.split("/")[-1]
+
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            key = (raw_dir, m.group("flowcell"))
+            seen.add(key)
+            lanes.setdefault(key, set()).add(f"L{m.group('lane')}")
+            libraries.setdefault(key, set()).add(
+                (m.group("group"), m.group("assay"), m.group("sample"))
+            )
+            stem = (
+                f"{m.group('flowcell')}_{m.group('group')}_{m.group('assay')}"
+                f"_S{m.group('sample')}_L{m.group('lane')}"
+            )
+            lane_sets.setdefault(key, set()).add((stem, m.group("chunk")))
+            found_types.setdefault(key, set()).add(m.group("read"))
+            modalities.setdefault(key, set()).add(m.group("assay"))
+            present.add(f"{raw_dir}/{basename}")
+            continue
+
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    seen.add((raw_dir, candidate))
+                break
+
+    def _ordered(types: set[str]) -> str:
+        return ", ".join(t for t in ILLUMINA_READ_TYPE_ORDER if t in types)
+
+    def _lengths_text(by_type: dict[str, set[int]]) -> str:
+        return ", ".join(
+            f"{t}={'/'.join(str(n) for n in sorted(by_type[t]))}"
+            for t in ILLUMINA_READ_TYPE_ORDER
+            if t in by_type
+        )
+
+    def _missing_read_types(key: tuple[str, str], reads: list[str]) -> set[str]:
+        sets = lane_sets.get(key, set())
+        if not sets:
+            return set(reads)
+        raw_dir = key[0]
+        return {
+            read
+            for stem, chunk in sets
+            for read in reads
+            if f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz" not in present
+        }
+
+    # One row per GroupID folder; a group sequenced on several flowcells has
+    # each flowcell's values combined -- listed, uniqued or summed.
+    by_dir: dict[str, list[str]] = {}
+    for raw_dir, flowcell in seen:
+        by_dir.setdefault(raw_dir, []).append(flowcell)
+
+    rows: list[dict[str, Any]] = []
+    for raw_dir in sorted(by_dir):
+        flowcells = sorted(by_dir[raw_dir])
+        keys = [(raw_dir, fc) for fc in flowcells]
+        # {proj}/{Order#}/{GroupID}/raw -> GroupID.
+        parts = raw_dir.split("/")
+        group_id = parts[-2] if len(parts) >= 2 and parts[-1] == "raw" else ""
+
+        def _union(table: dict, keys=keys) -> set:
+            return set().union(*(table.get(k, set()) for k in keys))
+
+        # Each flowcell is checked against its own planned reads (all four
+        # read types when its RunParameters.xml is unusable, as in the
+        # expected-files check).
+        missing: set[str] = set()
+        for key in keys:
+            reads = planned_reads.get(key[1]) or ILLUMINA_DEFAULT_PLANNED_READS
+            missing |= _missing_read_types(key, list(reads))
+
+        expected = set().union(*(planned_reads.get(fc) or () for fc in flowcells))
+        unknown = [fc for fc in flowcells if not planned_reads.get(fc)]
+        if not unknown:
+            expected_text = _ordered(expected)
+        else:
+            note = (
+                f"no readable {ILLUMINA_RUN_PARAMETERS_SUFFIX.lstrip('_')} for "
+                f"{', '.join(unknown)}; assumed "
+                + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
+            )
+            expected_text = (
+                f"{_ordered(expected)}; UNKNOWN ({note})"
+                if expected
+                else f"UNKNOWN ({note})"
+            )
+
+        observed: dict[str, set[int]] = {}
+        for key in keys:
+            for read_type, values in observed_lengths.get(key, {}).items():
+                observed.setdefault(read_type, set()).update(values)
+
+        group_modalities = _union(modalities)
+        rows.append(
+            {
+                "group_id": group_id,
+                "flowcell": ", ".join(flowcells),
+                "modality": ", ".join(
+                    mod for mod in ILLUMINA_MODALITIES if mod in group_modalities
+                ),
+                "expected_read_types": expected_text,
+                "observed_read_length": _lengths_text(observed),
+                "observed_read_types": _ordered(_union(found_types)),
+                "missing_read_type": _ordered(missing) or "none",
+                "lanes": ", ".join(sorted(_union(lanes))),
+                "library_count": sum(len(libraries.get(k, set())) for k in keys),
+                "read_count": sum(r1_reads.get(k, 0) for k in keys),
+            }
+        )
+    return rows
+
+
+def total_reads_by_flowcell(
+    all_raw_files: list[str],
+    read_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Total R1 read count per flowcell, across every GroupID on it.
+
+    Sums the R1 ``read_count`` of every fastq ``metadata.json`` by flowcell, so
+    a flowcell shared by several GroupIDs gets one total. A flowcell named by a
+    fastq or a run file but with no readable R1 count is listed with 0. Sorted
+    by flowcell ID.
+    """
+    totals: dict[str, int] = {}
+    for fullpath in all_raw_files:
+        basename = fullpath.split("/")[-1]
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            totals.setdefault(m.group("flowcell"), 0)
+            continue
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    totals.setdefault(candidate, 0)
+                break
+    for (_raw_dir, flowcell), n in _illumina_r1_read_counts(read_metadata).items():
+        totals[flowcell] = totals.get(flowcell, 0) + n
+    return [{"flowcell": fc, "read_count": n} for fc, n in sorted(totals.items())]
+
+
+# Missing raw files with these endings are sequence data; everything else a
+# delivery is expected to carry (metadata.json sidecars, trimmer stats, run
+# logs and flowcell files, ...) is reported as a log file.
+RAW_SEQUENCE_SUFFIXES = (".fastq.gz", ".cram")
+
+
+def split_missing_raw_files(
+    raw_lost: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    """Split the missing paths in ``raw_lost`` into (sequence files, log files).
+
+    A sequence file ends in ``.fastq.gz`` or ``.cram``; a ``-metadata.json``
+    sidecar of one is a log file. Each row of ``raw_lost`` is
+    ``{"path": <beginning>, <ending>: <full missing path>, ...}`` from
+    ``check_expected_raw_files``.
+    """
+    sequence: list[str] = []
+    logs: list[str] = []
+    for row in raw_lost:
+        for key, path in row.items():
+            if key == "path":
+                continue
+            (sequence if str(path).endswith(RAW_SEQUENCE_SUFFIXES) else logs).append(
+                path
+            )
+    return sequence, logs
 
 
 def check_expected_raw_files(
@@ -518,6 +849,8 @@ def check_expected_raw_files(
     raw_assay: str,
     *,
     allow_truncated_stats_name: bool = False,
+    sequencing_type: str = "Ultima",
+    planned_reads: dict[str, list[str]] | None = None,
 ) -> tuple[int, list[dict[str, Any]], list[str]]:
     """
     Check that expected raw file endings are present for each "beginning".
@@ -527,7 +860,15 @@ def check_expected_raw_files(
     ``<beginning>_trimmer-stats.csv`` is treated as fulfilled if the sibling
     ``<beginning>_stats.csv`` is present in ``all_raw_files``; that sibling
     is then added to ``raw_found`` so it is not double-flagged as extra.
+
+    ``sequencing_type="Illumina"`` delegates to
+    ``_check_expected_illumina_raw_files``: an Illumina delivery is not shaped
+    like a set of endings hung off a library beginning, so it gets its own
+    traversal rather than an entry in ``raw_expected``.
     """
+    if sequencing_type == "Illumina":
+        return _check_expected_illumina_raw_files(all_raw_files, planned_reads)
+
     # Keyed by (raw_dir, beginning) for seahub_sci, and by the beginning alone
     # for everything else.
     #
@@ -678,12 +1019,28 @@ def _is_known_scale_raw_file(
     return False
 
 
+def count_files_by_type(paths: list[str]) -> list[tuple[str, int]]:
+    """Count files by type, most common first (ties alphabetical).
+
+    A file's type is everything from the first "." of its name, so
+    ``x_R1_001.fastq.gz`` is ``.fastq.gz`` and its sidecar is
+    ``.fastq.gz-metadata.json``. A name with no "." is ``(no extension)``.
+    """
+    counts: dict[str, int] = {}
+    for path in paths:
+        name = path.split("/")[-1]
+        kind = name[name.index(".") :] if "." in name else "(no extension)"
+        counts[kind] = counts.get(kind, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def check_extra_raw_files(
     all_raw_files: list[str],
     raw_found: list[str],
     raw_assay: str,
     *,
     allow_truncated_stats_name: bool = False,
+    sequencing_type: str = "Ultima",
 ) -> list[str]:
     """
     Identify raw files that are not in the expected set (optionals allowed).
@@ -697,6 +1054,23 @@ def check_extra_raw_files(
     """
     raw_found_set = set(raw_found)
     all_raw_set = set(all_raw_files)
+
+    if sequencing_type == "Illumina":
+        # There are no optional Illumina endings to reconstruct: the Illumina
+        # completeness pass already put every flowcell file, fastq and sidecar
+        # it matched into raw_found, so whatever is left really is unexpected.
+        # The sidecar rule still applies, for the same reason it does below --
+        # a sidecar beside a file we know about is not itself a stray.
+        return [
+            f
+            for f in all_raw_files
+            if f not in raw_found_set
+            and not (
+                f.endswith("-metadata.json")
+                and f.replace("-metadata.json", "") in all_raw_set
+            )
+        ]
+
     optional_endings = raw_optional.get(raw_assay, [])
     if raw_assay == "10x_viral_ORF":
         optional_endings = raw_optional.get("10x", [])

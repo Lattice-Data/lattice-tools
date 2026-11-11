@@ -965,6 +965,63 @@ For `bcp/qa.ipynb` and `qa_gather` raw-file validation, 10x group comparisons no
 
 This avoids false-positive group errors when providers use different separators between folder names and file names.
 
+### Illumina deliveries (`sequencing_type='Illumina'`)
+
+`bcp/qa.ipynb` assumes **Ultima** (UG100) by default: wafers, the Ultima trimmer
+(`_trimmer-stats.csv`, `_trimmer-failure_codes.csv`), RSQ reads, and fastqs the trimmer emits under
+the single literal name `_S1_L001_R1_001.fastq.gz`.
+
+Set the cell-1 parameter `sequencing_type = "Illumina"` to QA an Illumina delivery instead. It is
+supported for **`raw_assay='10x'` only** — every other assay is a CRAM/trimmer pipeline with no
+flowcell concept, and `resolve_qa_run_context` raises on the combination rather than quietly
+checking the wrong thing.
+
+Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
+
+- Eight per-flowcell run files, `{FC}` being the Flowcell ID — `{FC}_CopyComplete.txt`,
+  `{FC}_Manifest.tsv`, `{FC}_RTAComplete.txt`, `{FC}_RTAExited.txt`,
+  `{FC}_RunCompletionStatus.xml`, `{FC}_RunInfo.xml`, `{FC}_RunParameters.xml` and
+  `{FC}_Logs.zip`.
+- Fastqs `{FC}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz` (e.g.
+  `B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz`), each with its
+  `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
+  independently.
+  `{Assay}` is one of GEX, CRI, ATAC, viral_ORF, ADT, HTO, ADT_HTO, BCR or TCR — Illumina's own
+  list, separate from the Ultima assay list, and case-sensitive. A fastq shaped like this but with
+  any other `{Assay}` (`VDJ`, a lowercase `gex`) is a `WRONG ASSAY: unrecognized Illumina modality`
+  error; it is also listed in `raw_extra.txt`, and is left out of every other check.
+
+**Which reads are required is read from `{FC}_RunParameters.xml`**, not assumed: its `<PlannedReads>`
+block maps `Read1→R1`, `Read2→R2`, `Index1→I1`, `Index2→I2`, so a run with no index reads requires
+two fastqs per lane and a dual-indexed run requires four. If that file is missing or unparseable, QA
+warns and expects all four read types (R1, R2, I1, I2).
+
+**Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
+shows the wafer table under Ultima shows a table with one row per GroupID instead (a GroupID on
+several flowcells lists them and sums its counts) — planned
+reads, the longest read in each fastq's `metadata.json` `read_lengths`
+(`observed_read_length`), the read types found (`observed_read_types`), any planned read type missing from a
+library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars. A second table totals the R1
+`read_count` per flowcell across all its GroupIDs.
+
+Checks that do not run under Illumina, each printing why rather than passing silently:
+
+| Check | Reason |
+| --- | --- |
+| Sublibrary Q30 | `PCT_PF_Q30_bases` lives in the Ultima trimmer's aggregate stats CSV, which is not delivered |
+| Trimmer / RSQ fail-rate plots | no `trimmer-failure_codes.csv` in an Illumina delivery |
+| Wafer-level summary | no wafers; replaced by the flowcell table |
+
+**Index reads are excluded from group read totals**, a no-op for Ultima. `I1`/`I2` sidecars carry a
+`read_count` equal to the library's, so summing them inflated raw reads about threefold and broke the
+raw-vs-CellRanger comparison. No Ultima assay ships index sidecars. ATAC's `R3` is still counted.
+
+**GroupID by modality summary** (both platforms). One row per GroupID, one 0/1 column per modality:
+a library is unique to its GroupID and modality, however many wafers, flowcells or lanes it spans.
+After the table, a `MODALITY WARNING` names each modality that some GroupIDs lack; each warning is
+printed and appended to `{order}_errors.txt`. This replaces the
+old fastq-count comparison (`MISMATCH FQ COUNTS`), which no longer runs for either platform.
+
 ### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
 
 Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in

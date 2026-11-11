@@ -13,7 +13,6 @@ import pytest
 from qa_checks import (
     check_expected_raw_files,
     check_extra_raw_files,
-    validate_fastq_counts,
     validate_read_metadata,
 )
 from qa_gather import gather_qa_data
@@ -243,14 +242,6 @@ class TestSeahubChecks:
         _good, _lost, found = check_expected_raw_files(all_raw, "seahub_sci")
         extra = check_extra_raw_files(all_raw, found, "seahub_sci")
         assert extra == []
-
-    def test_fastq_counts_gex_hash_only(self):
-        fastq_log = {
-            "REF3": {
-                "GEX_hash_oligo": ["a.trim.cram", "b.trim.cram"],
-            }
-        }
-        assert validate_fastq_counts(fastq_log, "seahub_sci") == []
 
     def test_read_metadata_skips_r1_r2_pairing(self):
         meta = {
