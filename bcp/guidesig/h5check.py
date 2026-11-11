@@ -570,9 +570,7 @@ def _check_per_sample_scope(
     if samples is not None:
         wanted = set(samples)
         keys = [
-            k
-            for k in keys
-            if _scope_name(k) in wanted or extract_library(k) in wanted
+            k for k in keys if _scope_name(k) in wanted or extract_library(k) in wanted
         ]
     layout = find_per_sample_layout(keys, filename)
 
@@ -592,16 +590,17 @@ def _check_per_sample_scope(
         found = {_scope_name(k) for k in layout.h5_keys} | {
             extract_library(k) for k in layout.h5_keys
         }
-        # A folder failure above already names a sample whose folder exists
-        # but holds no h5, so the listed-name message is kept for names with
-        # no folder at all.
+        # A folder failure above already names a sample or library whose
+        # folder exists but holds no h5, so the listed-name message is kept for
+        # names with no folder at all. A sample folder covers both its own
+        # name and its library's, since a listed library selects its samples.
         covered = {
             folder.rstrip("/").rsplit("/", 1)[-1]
             for folder in (
                 layout.sample_dirs_without_h5
                 + layout.library_dirs_without_per_sample_outs
             )
-        }
+        } | {extract_library(folder) for folder in layout.sample_dirs_without_h5}
         for name in samples:
             if name not in found and name not in covered:
                 report.failures.append(

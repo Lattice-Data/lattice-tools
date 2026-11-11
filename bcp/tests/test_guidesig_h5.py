@@ -715,6 +715,23 @@ def test_per_sample_scope_listed_library_selects_its_samples(tmp_path: Path) -> 
     ]
 
 
+def test_listed_library_whose_samples_lack_h5_reported_once() -> None:
+    """The sample-folder failure already names it; no second listed-name line."""
+    keys = [f"{OUTS}/S1/metrics_summary.csv"]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["LIB1"],
+        samples_label="samples.tsv",
+        scope="per-sample",
+        s3_client=MockS3Client(keys=keys),
+        reader=lambda bucket, key: set(),
+    )
+    assert report.failures == [
+        f"sample folder s3://{BUCKET}/{OUTS}/S1/ has no {H5_NAME}"
+    ]
+
+
 # --- multi scope: one run-level h5 per library --------------------------------
 
 
