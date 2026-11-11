@@ -265,6 +265,15 @@ def test_a_chunk_replaced_after_verify_fails(tmp_path, monkeypatch):
     assert "verify read size=5" in row.detail and "holds size=17" in row.detail
 
 
+def test_a_verify_report_not_there_yet_is_a_fail_not_a_crash(tmp_path, capsys):
+    plan, sheet, dst = make_world(tmp_path)
+    stage(dst, plan)
+    rows = run_check(plan, sheet, dst, tmp_path / "not_yet.tsv")
+    [clean] = [r for r in rows if r.check == "verify_clean"]
+    assert clean.status == "FAIL" and "not_yet.tsv not found" in clean.detail
+    assert {(c, "verified_full") for c in sheet["LIBB"]} <= fails(rows)
+
+
 def test_a_report_that_records_no_objects_fails(tmp_path):
     # e.g. one written by a verify from before objects were recorded
     plan, sheet, dst = make_world(tmp_path)

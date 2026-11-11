@@ -439,6 +439,9 @@ def copy_one(fs, plan: Plan, fp: FilePlan, opts: RunOptions, s3_client) -> Chunk
             )
         else:
             fs.copy(fp.file.s3_uri, target)
+        # the wrong object is gone; until a check says otherwise, the new
+        # copy is not known to be bad, so an error checking it keeps it
+        known_bad = False
         problem, checked = check_copy(fs, target, fp, s3_client)
         known_bad = problem is not None
     except Exception as e:  # one bad copy must not stop the others

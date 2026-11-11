@@ -227,6 +227,61 @@ def test_a_wrong_copy_is_removed_when_its_recopy_raises(tmp_path, monkeypatch):
     assert not (dst / one).exists()
 
 
+class ErrAfterCopyFS:
+    """size() fails for one path once a copy has been made: a transient error
+    checking a recopy that itself went fine."""
+
+    def __init__(self, fs, path: str):
+        self._fs, self._path, self._copied = fs, path, False
+
+    def __getattr__(self, attr):
+        return getattr(self._fs, attr)
+
+    def copy(self, src, dst):
+        self._fs.copy(src, dst)
+        self._copied = True
+
+    def size(self, path):
+        if self._copied and path == self._path:
+            raise OSError("simulated transient error")
+        return self._fs.size(path)
+
+
+def test_an_error_checking_a_good_recopy_keeps_it(tmp_path, monkeypatch):
+    plan, src, dst = make_world(tmp_path, n_sets=1)
+    assert run_plan(plan, opts(tmp_path), out=io.StringIO()) == 0
+    one = names(plan)[0]
+    (dst / one).write_bytes(b"truncated")  # found wrong, so copied again
+    real = s3io.make_fs
+    monkeypatch.setattr(
+        s3io, "make_fs", lambda url: ErrAfterCopyFS(real(url), plan.dst + one)
+    )
+    out = io.StringIO()
+    assert run_plan(plan, opts(tmp_path), out=out) == 1
+    assert "simulated transient error" in out.getvalue()
+    assert (dst / one).read_bytes() == (src / one).read_bytes()
+
+
+def test_rerunning_failed_copies_needs_no_split_tools(tmp_path, monkeypatch):
+    plan, _, dst = make_world(tmp_path, n_sets=1)
+    one = names(plan)[0]  # a copied file
+    big = [
+        FastqFile(
+            "B", s, f"b_{m}.fastq.gz", f"s3://src/b_{m}.fastq.gz", 150 * GB, 10**7
+        )
+        for s, m in (("read1", "R1"), ("read2", "R2"))
+    ]
+    plan.groups.append(plan_group(big))
+    assert plan.split_files()
+    write_plan(plan, tmp_path / "plan.json")
+    monkeypatch.setattr("fastq_chunker.cli.find_tools", lambda *a, **k: 1 / 0)
+    args = ["run", "--plan", str(tmp_path / "plan.json"), "--copy-singletons"]
+    args += ["--log-dir", str(tmp_path / "logs"), "--manifest", str(tmp_path / "m.tsv")]
+    # the hint a failed copy prints: no pigz or split needed to follow it
+    assert main(args + ["--only", one]) == 0
+    assert [p.name for p in dst.iterdir()] == [one]
+
+
 def test_only_limits_the_copies(tmp_path):
     plan, _, dst = make_world(tmp_path)
     one = names(plan)[0]

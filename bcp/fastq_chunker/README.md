@@ -273,28 +273,45 @@ not stop it. Copies have run at 13 to 27 GB a minute (a 1.3 TB set took 100
 minutes); splitting a 500 GB file takes 2 to 3 hours.
 
 ```bash
-cd ~/lattice-tools/bcp && AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive nohup sh -c "date; python -u -m fastq_chunker run --plan $B/plan.json --copy-singletons --log-dir $B/logs --manifest $B/run_manifest.tsv; date" > $B/run.log 2>&1 &
+cd ~/lattice-tools/bcp && { [ ! -e $B/run.log ] || mv $B/run.log $B/run.$(date -u +%Y%m%dT%H%M%S).log; } && AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive nohup sh -c "date; python -u -m fastq_chunker run --plan $B/plan.json --copy-singletons --log-dir $B/logs --manifest $B/run_manifest.tsv; echo exit \$?; date" > $B/run.log 2>&1 &
 ```
 
-Check on it whenever you like. This prints the files copied so far, any
-failures, and the last line of the log:
+`run.log` is this attempt's log. On a rerun, the previous one is kept as
+`run.<time>.log`. Check on it whenever you like. This prints the files copied
+so far, any failures, and the last two lines of the log:
 
 ```bash
-grep -c '^copied' $B/run.log; grep FAILED $B/run.log; tail -1 $B/run.log
+grep -c '^copied' $B/run.log; grep FAILED $B/run.log; tail -2 $B/run.log
 ```
 
-It is finished when the last line of `run.log` is a date. If any line says
-`FAILED`, or the run stopped partway, start step 5 again exactly as written:
-files already copied and checked are skipped, and only what is missing or
-wrong is redone.
+It is finished when the last line of `run.log` is a date. The line before it
+says `exit 0` when every file was copied. Any other exit status means the run
+failed: a `FAILED` line names a file that failed, and a run that stopped
+before copying anything ends in `error: …` or a Python traceback instead.
+After a failure, or if the run stopped partway, start step 5 again exactly as
+written. Files already copied and checked are skipped, and only what is
+missing or wrong is redone. An `error: …` that a rerun repeats needs to be
+sent on.
 
 **6. Only if step 3 said anything to split: verify the chunks.** This
 decompresses every chunk and checks its read count, its md5, and that mates
 line up. It also runs in the background:
 
 ```bash
-cd ~/lattice-tools/bcp && nohup sh -c "date; python -u -m fastq_chunker verify --plan $B/plan.json --level full --out $B/verify_report.tsv; date" > $B/verify.log 2>&1 &
+cd ~/lattice-tools/bcp && nohup sh -c "date; python -u -m fastq_chunker verify --plan $B/plan.json --level full --out $B/verify_report.tsv; echo exit \$?; date" > $B/verify.log 2>&1 &
 ```
+
+Wait for it to finish before step 7: it is done when the last line of
+`verify.log` is a date. Check with:
+
+```bash
+tail -3 $B/verify.log
+```
+
+It passed when that shows `PASS: …`, then `exit 0`, then the date. On
+`FAIL: …`, the lines above it in `verify.log` name each chunk and check that
+failed. Stop and send `verify.log` on: rerunning step 5 does not redo a file
+whose chunks are all there.
 
 **7. Check the folder.** This is the gate. It reads the folder itself and
 changes nothing:
@@ -306,13 +323,14 @@ cd ~/lattice-tools/bcp && python -m fastq_chunker check-submission --plan $B/pla
 If step 6 ran, add `--verify-report $B/verify_report.tsv`. The set is done
 when this prints `PASS: …, 0 failed`, with every copy checked by
 `size+crc64nvme`. A `FAIL` line names the file and the check. Most are fixed
-by running step 5 again, then this step; anything else, send it on.
+by running step 5 again, then step 6 if the set splits, then this step.
+Anything else, send it on.
 
-**8. Record the summary**: start and end time, files, GB, and how each copy
-was checked. Send it with step 7's output to whoever handed you the set:
+**8. Record the summary**: when the first attempt started, when the last one
+ended, files, GB, and how each copy was checked. Send it with step 7's output to whoever handed you the set:
 
 ```bash
-grep -v '^nohup' $B/run.log | head -1; tail -1 $B/run.log; awk -F'\t' 'NR>1 {sub(/\r$/, ""); n++; gb+=$3/1e9; c[$7]++; s[$5]++} END {printf "%d files, %.1f GB; status:", n, gb; for (k in s) printf " %s=%d", k, s[k]; printf "; checked:"; for (k in c) printf " %s=%d", k, c[k]; print ""}' $B/run_manifest.tsv
+grep -hv '^nohup' $(ls $B/run.*.log 2>/dev/null) $B/run.log | head -1; tail -1 $B/run.log; awk -F'\t' 'NR>1 {sub(/\r$/, ""); n++; gb+=$3/1e9; c[$7]++; s[$5]++} END {printf "%d files, %.1f GB; status:", n, gb; for (k in s) printf " %s=%d", k, s[k]; printf "; checked:"; for (k in c) printf " %s=%d", k, c[k]; print ""}' $B/run_manifest.tsv
 ```
 
 Do not create folders inside a set's folder from the S3 console: the marker it
@@ -322,20 +340,21 @@ again, then step 7.
 
 **Removing a set's folder**, when it was only a test or has to be redone from
 scratch. Deletion is permanent. Check the count and the names first; every
-line must start with `(dryrun) delete: $SRA/$NAME/`:
+line must start with `(dryrun) delete: $SRA/$NAME/`. If `SRA` or `NAME` is not
+set in this terminal, the shell refuses to run these instead:
 
 ```bash
-aws s3 rm $SRA/$NAME/ --recursive --dryrun | wc -l
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive --dryrun | wc -l
 ```
 ```bash
-aws s3 rm $SRA/$NAME/ --recursive --dryrun | head -3
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive --dryrun | head -3
 ```
 
 Then delete it, and confirm the folder is gone. The listing should not show
 `$NAME/`:
 
 ```bash
-aws s3 rm $SRA/$NAME/ --recursive
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive
 ```
 ```bash
 aws s3 ls $SRA/

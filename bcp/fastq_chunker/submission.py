@@ -87,6 +87,10 @@ def read_verify_report(report: Path | None, plan: Plan) -> VerifyReport:
     out = VerifyReport({}, set(), [], False, {})
     if report is None:
         return out
+    if not report.exists():
+        # e.g. the gate run before verify finished: a FAIL, not a traceback
+        out.fails.append(("*", "*", f"{report} not found"))
+        return out
     labels = chunk_labels(plan)
     with open(report, newline="") as f:
         for r in csv.DictReader(f, delimiter="\t"):

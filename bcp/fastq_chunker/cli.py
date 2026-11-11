@@ -352,7 +352,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         upload_concurrency=args.upload_concurrency,
     )
     tools = None
-    if plan.split_files():
+    # only what --only leaves to split needs pigz and split: a rerun of
+    # failed copies runs where they are not installed
+    to_split = [
+        fp
+        for _, fp in plan.split_files()
+        if not args.only or fp.file.filename in args.only
+    ]
+    if to_split:
         tools = find_tools(args.pigz, args.split, args.decompressor, args.rapidgzip)
     return run_plan(plan, opts, tools=tools)
 
