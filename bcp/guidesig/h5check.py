@@ -65,12 +65,6 @@ RUN_LEVEL_LOCATIONS = f"{FLAT_OUTS_SEGMENT} and {MULTI_COUNT_SEGMENT}"
 CRISPR_FEATURE_TYPE = "CRISPR Guide Capture"
 EXAMPLE_LIMIT = 10
 
-# Default thread/pool sizes, by scope; see default_workers_for. These are
-# guidesig's own, so file_extract's shared ceiling keeps its tuned value for
-# the high-fanout introspection it still does.
-MULTI_SCOPE_WORKERS = 24
-PER_SAMPLE_SCOPE_WORKERS = 8
-
 # Bytes s3fs fetches per range request. Reading the features table out of a
 # multi-GB run-level matrix takes only a handful of seeks, but s3fs defaults to
 # 50 MiB blocks (``S3FileSystem.default_block_size``), so each of those seeks
@@ -100,20 +94,6 @@ def default_filename_for(scope: str) -> str:
     if scope == SCOPE_MULTI:
         return DEFAULT_MULTI_H5_FILENAME
     return DEFAULT_PER_SAMPLE_H5_FILENAME
-
-
-def default_workers_for(scope: str) -> int:
-    """Threads, and S3 pool size, a scope uses when ``--workers`` is unset.
-
-    Opening an h5 costs many range reads, so the ceiling is about how many
-    files a scope opens at once rather than how fast one of them is. ``multi``
-    opens one per library, which is few enough to widen; the per-sample sweep
-    opens one per sample, which is the high-fanout case the shared
-    ``file_extract`` ceiling of 8 was tuned for.
-    """
-    if scope == SCOPE_MULTI:
-        return MULTI_SCOPE_WORKERS
-    return PER_SAMPLE_SCOPE_WORKERS
 
 
 @dataclass(frozen=True)
@@ -574,10 +554,21 @@ def _check_per_sample_scope(
     all_h5: int,
     report: H5CheckReport,
 ) -> None:
-    """Sweep every per-sample h5; a file integrity check, not a guide check."""
+    """Sweep every per-sample h5; a file integrity check, not a guide check.
+
+    ``samples`` names may be samples or libraries. A key is kept when its
+    ``per_sample_outs/<sample>/`` name or its library folder is listed.
+    Matching ``_scope_name`` alone missed listed libraries: it prefers the
+    sample name, so every per-sample h5 under a listed library was filtered
+    out, and that library was then reported as having no ``per_sample_outs/``.
+    """
     if samples is not None:
         wanted = set(samples)
-        keys = [k for k in keys if _scope_name(k) in wanted]
+        keys = [
+            k
+            for k in keys
+            if _scope_name(k) in wanted or extract_library(k) in wanted
+        ]
     layout = find_per_sample_layout(keys, filename)
 
     for folder in layout.library_dirs_without_per_sample_outs:
@@ -593,9 +584,11 @@ def _check_per_sample_scope(
             f"checked {len(layout.h5_keys)} of {all_h5} {filename} file(s); "
             f"samples from {samples_label}"
         )
-        found = {_scope_name(k) for k in layout.h5_keys}
+        found = {_scope_name(k) for k in layout.h5_keys} | {
+            extract_library(k) for k in layout.h5_keys
+        }
         # A folder failure above already names a sample whose folder exists
-        # but holds no h5, so the listed-sample message is kept for names with
+        # but holds no h5, so the listed-name message is kept for names with
         # no folder at all.
         covered = {
             folder.rstrip("/").rsplit("/", 1)[-1]
@@ -607,8 +600,8 @@ def _check_per_sample_scope(
         for name in samples:
             if name not in found and name not in covered:
                 report.failures.append(
-                    f"sample {name!r} listed in {samples_label} has no {filename} "
-                    f"under {h5_uri}"
+                    f"sample or library {name!r} listed in {samples_label} has "
+                    f"no {filename} under {h5_uri}"
                 )
     if not layout.h5_keys:
         if samples is None:
@@ -649,10 +642,12 @@ def check_guide_ids_against_h5(
     ``samples`` limits the check to those exact names, matched differently by
     scope. ``multi`` matches the library folder alone (the folder before
     ``processed/``), never a sample name, including on the per-sample keys of
-    the same library. ``per-sample`` matches the ``per_sample_outs/<sample>/``
-    folder, falling back to the library folder when a key has no such segment.
-    So on an order where a library and a sample are named differently, a list
-    that selects under one scope selects nothing under the other.
+    the same library. ``per-sample`` matches either the
+    ``per_sample_outs/<sample>/`` folder or the library folder, so a listed
+    library selects every sample under it. A list of library names therefore
+    works under both scopes, while a list of sample names selects nothing
+    under ``multi`` on an order where samples and libraries are named
+    differently.
 
     A listed name with no h5 is a failure, so a typo is reported rather than
     quietly narrowing the check to nothing. Names not listed are excluded
@@ -676,12 +671,7 @@ def check_guide_ids_against_h5(
     except ValueError as exc:
         raise H5CheckError(str(exc)) from exc
 
-    # ``is not None`` rather than ``or``: 0 is falsy, and silently swapping it
-    # for the default would hide a caller error that h5_worker_ceiling rejects.
-    pool_size = h5_worker_ceiling(
-        do_introspect=True,
-        workers=workers if workers is not None else default_workers_for(scope),
-    )
+    pool_size = h5_worker_ceiling(do_introspect=True, workers=workers)
     if s3_client is None or reader is None:
         check_dependencies()
     if s3_client is None:

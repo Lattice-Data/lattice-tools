@@ -767,9 +767,10 @@ checked against that order at all without narrowing to the libraries it describe
   `processed/`, as in `<order>/panelA_s1/processed/cellranger/<run>/outs/...`. A sample
   name is never matched under this scope, even one that happens to equal a library name,
   so a per-sample names file selects nothing here rather than selecting the wrong thing
-- Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
-  folder. In orders where the two differ (library `Treg_L01` holding sample `TregPilot`),
-  a list that works for one scope will not work for the other
+- Under `per-sample`, names match either `per_sample_outs/<sample>/` or the library folder,
+  so a listed library selects every sample under it. A list of library names therefore
+  works under both scopes. A list of sample names works only under `per-sample` in orders
+  where the two differ (library `Treg_L01` holding sample `TregPilot`)
 - Unlisted libraries are excluded entirely, including from the missing-h5 and
   missing-folder reports, so an excluded library cannot fail for lacking a file either
 - A listed name with no h5 **is** a failure, so a typo is reported rather than quietly
@@ -789,11 +790,8 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 - Every h5 is read before anything is reported, so one run lists every failing file; the
   signature is printed only if all pass
 - `--h5-filename NAME` overrides the active scope's default basename
-- `--workers N` sets parallel h5 reads and the S3 connection pool they share. The default
-  depends on how many files the scope opens at once, since opening one h5 costs many range
-  reads: **24** for `multi`, which opens one per library, and **8** for `per-sample` and
-  `per-sample`, which opens one per sample and is the high-fanout case `file_extract`'s
-  shared ceiling was tuned for
+- `--workers N` sets parallel h5 reads and the S3 connection pool they share (default 8,
+  for every scope)
 - `--retries N` (default 5) sets attempts per transient S3 error. `--workers`, `--retries`,
   `--h5-scope`, `--h5-filename` and `--h5-samples-file` require `--h5-uri`
 - Each h5 is opened with a 1 MiB S3 block size (`h5check.FEATURES_BLOCK_SIZE`), not s3fs's

@@ -504,7 +504,8 @@ def test_listed_sample_without_h5_fails(tmp_path: Path) -> None:
         reader=_local_reader(files),
     )
     assert report.failures == [
-        f"sample 'tb7k_q9' listed in samples.tsv has no {H5_NAME} under {URI}"
+        f"sample or library 'tb7k_q9' listed in samples.tsv has no {H5_NAME} "
+        f"under {URI}"
     ]
     assert report.h5_total == 1
 
@@ -520,7 +521,8 @@ def test_sample_list_matching_nothing_reports_each_name() -> None:
         reader=lambda bucket, key: set(),
     )
     assert report.failures == [
-        f"sample 'tb7k_q2' listed in samples.tsv has no {H5_NAME} under {URI}"
+        f"sample or library 'tb7k_q2' listed in samples.tsv has no {H5_NAME} "
+        f"under {URI}"
     ]
     assert report.notes == [
         f"checked 0 of 1 {H5_NAME} file(s); samples from samples.tsv"
@@ -674,6 +676,43 @@ def test_listed_sample_matching_library_failure_reported_once(tmp_path: Path) ->
         f"library folder s3://{BUCKET}/proj/order/pm3x_v8/ has no per_sample_outs/"
     )
     assert report.failures == [expected]
+
+
+def test_per_sample_scope_listed_library_selects_its_samples(tmp_path: Path) -> None:
+    """A listed library name selects every per-sample h5 under it.
+
+    Regression: matching on the sample name alone filtered out all of LIB1's
+    per-sample h5s, so LIB1 was reported as having no per_sample_outs/.
+    """
+    other = f"proj/order/LIB2/processed/run1/outs/per_sample_outs/S3/count/{H5_NAME}"
+    files = {
+        KEY_S1: _write_h5(tmp_path / "s1.h5", _guides("g1")),
+        KEY_S2: _write_h5(tmp_path / "s2.h5", _guides("g1")),
+        other: _write_h5(tmp_path / "s3.h5", _guides("g1")),
+    }
+    keys = [*files, "proj/order/LIB1/processed/run1/outs/config.csv"]
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["LIB1"],
+        samples_label="samples.tsv",
+        scope="per-sample",
+        s3_client=MockS3Client(keys=keys),
+        reader=reader,
+    )
+    assert report.failures == []
+    assert sorted(read) == [KEY_S1, KEY_S2]
+    assert report.notes == [
+        f"checked 2 of 3 {H5_NAME} file(s); samples from samples.tsv",
+        f"all 1 guide_ids present in each of 2 per-sample {H5_NAME} file(s)",
+    ]
 
 
 # --- multi scope: one run-level h5 per library --------------------------------
@@ -988,42 +1027,18 @@ def test_flat_layout_missing_guides_name_the_run(tmp_path: Path) -> None:
     ]
 
 
-# --- per-scope worker defaults ------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "scope, expected",
-    [
-        ("multi", h5check.MULTI_SCOPE_WORKERS),
-        ("per-sample", h5check.PER_SAMPLE_SCOPE_WORKERS),
-    ],
-)
-def test_default_workers_for_scope(scope: str, expected: int) -> None:
-    assert h5check.default_workers_for(scope) == expected
-
-
-def test_multi_scope_opens_more_threads_than_per_sample() -> None:
-    """The point of the split: multi opens one h5 per library, so it can widen."""
-    assert h5check.MULTI_SCOPE_WORKERS > h5check.PER_SAMPLE_SCOPE_WORKERS
-
-
-def test_cli_worker_help_defaults_match_h5check() -> None:
-    """cli spells the defaults out for help text; keep the two in step."""
-    from guidesig import cli
-
-    assert cli.H5_MULTI_WORKERS_HELP_DEFAULT == h5check.MULTI_SCOPE_WORKERS
-    assert cli.H5_PER_SAMPLE_WORKERS_HELP_DEFAULT == h5check.PER_SAMPLE_SCOPE_WORKERS
+# --- worker default -----------------------------------------------------------
 
 
 @pytest.mark.parametrize("scope", ["multi", "per-sample"])
-def test_explicit_workers_overrides_the_scope_default(
+def test_explicit_workers_overrides_the_default(
     tmp_path: Path, monkeypatch, scope: str
 ) -> None:
     seen: list[int] = []
     monkeypatch.setattr(
         h5check,
         "h5_worker_ceiling",
-        lambda *, do_introspect, workers: seen.append(workers) or workers,
+        lambda *, do_introspect, do_md5, workers: seen.append(workers) or workers,
     )
     files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
     check_guide_ids_against_h5(
@@ -1037,21 +1052,15 @@ def test_explicit_workers_overrides_the_scope_default(
     assert seen == [3]
 
 
-@pytest.mark.parametrize(
-    "scope, expected",
-    [
-        ("multi", 24),
-        ("per-sample", 8),
-    ],
-)
-def test_unset_workers_uses_the_scope_default(
-    tmp_path: Path, monkeypatch, scope: str, expected: int
+@pytest.mark.parametrize("scope", ["multi", "per-sample"])
+def test_unset_workers_leaves_the_default_to_file_extract(
+    tmp_path: Path, monkeypatch, scope: str
 ) -> None:
-    seen: list[int] = []
+    seen: list[int | None] = []
     monkeypatch.setattr(
         h5check,
         "h5_worker_ceiling",
-        lambda *, do_introspect, workers: seen.append(workers) or workers,
+        lambda *, do_introspect, do_md5, workers: seen.append(workers) or 8,
     )
     files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
     check_guide_ids_against_h5(
@@ -1061,7 +1070,17 @@ def test_unset_workers_uses_the_scope_default(
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
-    assert seen == [expected]
+    assert seen == [None]
+
+
+def test_cli_worker_help_default_matches_file_extract() -> None:
+    """cli spells the default out for help text; keep it in step."""
+    from file_extract.h5 import h5_worker_ceiling
+    from guidesig import cli
+
+    assert cli.H5_WORKERS_HELP_DEFAULT == h5_worker_ceiling(
+        do_introspect=True, do_md5=False
+    )
 
 
 # --- S3 block size for the features read --------------------------------------
