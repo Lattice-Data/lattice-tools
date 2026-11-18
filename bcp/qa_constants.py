@@ -14,7 +14,17 @@ chemistries = {
     "GEM-X Flex v2": "flex",
 }
 
-valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]
+valid_assays = [
+    "CRI",
+    "GEX",
+    "ATAC",
+    "viral_ORF",
+    "GEX_hash_oligo",
+    "hash_oligo",
+    "ADT",
+    "HTO",
+    "ADT_HTO",
+]
 
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
@@ -310,6 +320,113 @@ raw_optional = {
         ".trim.cram-metadata.json",
     ],
 }
+
+# ---------------------------------------------------------------------------
+# Illumina deliveries (sequencing_type="Illumina")
+#
+# Layout, flat in one directory:
+#   {proj}/{Order#}/{GroupID}/raw/
+#       {FlowcellID}_CopyComplete.txt           <- eight flowcell-level files
+#       ...
+#       {FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+#       ...and a *-metadata.json sidecar beside each fastq.
+#
+# This does not fit the "beginning + endings" model the Ultima tables above
+# drive: the flowcell files are keyed by Flowcell ID, one set per directory
+# rather than one per library, and the S-number and lane both vary, so the
+# fastq names cannot be enumerated as literal endings.  check_expected_raw_files
+# therefore branches on sequencing_type rather than looking anything up here.
+#
+# Illumina is supported for 10x only; resolve_qa_run_context rejects any other
+# assay, so there is deliberately no per-assay table in this section.
+# ---------------------------------------------------------------------------
+
+ALLOWED_SEQUENCING_TYPES = frozenset(("Ultima", "Illumina"))
+
+# Assays an Illumina delivery is supported for.
+ILLUMINA_RAW_ASSAYS = frozenset(("10x",))
+
+# The eight files expected once per flowcell.  The separator is part of each
+# suffix so a single concatenation against the flowcell ID builds every
+# expected name.
+ILLUMINA_FLOWCELL_FILE_SUFFIXES = (
+    "_CopyComplete.txt",
+    "_Manifest.tsv",
+    "_RTAComplete.txt",
+    "_RTAExited.txt",
+    "_RunCompletionStatus.xml",
+    "_RunInfo.xml",
+    "_RunParameters.xml",
+    "_Logs.zip",
+)
+
+# The flowcell file carrying <PlannedReads>, which says which reads to expect.
+ILLUMINA_RUN_PARAMETERS_SUFFIX = "_RunParameters.xml"
+
+# A flowcell ID carries no separator (e.g. 22YKTVLT4). Required so a stray
+# "FOO-BAR_Logs.zip" is not read as a flowcell named "FOO-BAR".
+ILLUMINA_FLOWCELL_ID_RE = re.compile(r"^[A-Za-z0-9]+$")
+
+# {FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+# e.g. B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz
+#
+# Every separator is an underscore, and a GroupID may contain more of them
+# (``BCP_1_U3``), so the flowcell is found by its shape rather than by a unique
+# delimiter: it is alphanumeric -- the same rule as ILLUMINA_FLOWCELL_ID_RE -- so
+# it ends at the first underscore.  ``group`` is non-greedy and ends where the
+# assay token is followed by ``_S{n}_L{lane}``, which is what keeps an assay-
+# shaped word inside a GroupID from being taken as the assay.  A flowcell ID
+# containing a non-alphanumeric character would not parse; this regex is the
+# single place to widen if that ever shows up in a real delivery.
+# The modalities an Illumina fastq name may carry, in the order the flowcell
+# table lists them. Separate from ``valid_assays``, which describes Ultima
+# deliveries and has no ADT/HTO/BCR/TCR: an Illumina fastq for one of those
+# would otherwise match nothing and drop out of every check.
+ILLUMINA_MODALITIES = (
+    "GEX",
+    "CRI",
+    "ATAC",
+    "viral_ORF",
+    "ADT",
+    "HTO",
+    "ADT_HTO",
+    "BCR",
+    "TCR",
+)
+# Longest-first, so ADT_HTO is preferred over ADT / HTO.
+_ILLUMINA_MODALITY_ALTERNATION = "|".join(
+    sorted(map(re.escape, ILLUMINA_MODALITIES), key=len, reverse=True)
+)
+
+ILLUMINA_FASTQ_RE = re.compile(
+    rf"^(?P<flowcell>[A-Za-z0-9]+)_(?P<group>.+?)_(?P<assay>{_ILLUMINA_MODALITY_ALTERNATION})"
+    r"_S(?P<sample>\d+)_L(?P<lane>\d{3})_(?P<read>R[123]|I[12])_(?P<chunk>\d+)"
+    r"\.fastq\.gz$"
+)
+
+# Shaped like an Illumina fastq but with any modality token. A name that matches
+# this and not ILLUMINA_FASTQ_RE has a modality QA does not recognise (VDJ, a
+# lowercase gex, ...); without this it would parse as nothing and appear only
+# in raw_extra.txt. No modality is extracted: GroupIDs may contain underscores,
+# so where the group ends and the modality begins is ambiguous.
+ILLUMINA_FASTQ_LOOSE_RE = re.compile(
+    r"^[A-Za-z0-9]+_.+_S\d+_L\d{3}_(?:R[123]|I[12])_\d+\.fastq\.gz$"
+)
+
+# <Read ReadName="..."> values in RunParameters.xml -> the token that appears in
+# the fastq filename.  Names outside this map are ignored rather than rejected:
+# an unfamiliar planned read is not a reason to fail a delivery.
+ILLUMINA_PLANNED_READ_MAP = {
+    "Read1": "R1",
+    "Read2": "R2",
+    "Index1": "I1",
+    "Index2": "I2",
+}
+
+# Expected read types when a flowcell's RunParameters.xml is missing or
+# unreadable: all four, so a missing index read is reported rather than
+# assumed absent.
+ILLUMINA_DEFAULT_PLANNED_READS = ("R1", "R2", "I1", "I2")
 
 # ---------------------------------------------------------------------------
 # SeaHub lab raw upload patterns ({lab}-seahub-bcp buckets)
