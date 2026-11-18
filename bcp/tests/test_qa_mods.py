@@ -932,6 +932,43 @@ class TestParseMetSumm101:
         )
         assert parse_met_summ(path)["GEX_reads"] == 107
 
+    def test_plain_number_column_with_fractions_parses_as_float(self, tmp_path):
+        """
+        TOOLS-395: plain counts mixed with plain fractions (no "92.00%" strings)
+        make pandas read Metric Value as float64, so counts arrive as
+        "500000000.0". Those must still parse as whole read counts.
+        """
+        path = self._write(
+            tmp_path,
+            [
+                "Library,Gene Expression,Fastq ID,LIB1,Number of reads analyzed,500000000",
+                "Library,Gene Expression,Fastq ID,LIB1,Number of short reads skipped,7",
+                "Library,Gene Expression,Fastq ID,LIB1,Q30 RNA read,0.92",
+                "Library,CRISPR Guide Capture,Fastq ID,C-1,Number of reads analyzed,50",
+                "Library,CRISPR Guide Capture,Fastq ID,C-1,Q30 RNA read,0.9224",
+            ],
+        )
+        report = parse_met_summ(path)
+        assert report == {"GEX_reads": 500_000_007, "CRI_reads": 50}
+        assert all(isinstance(v, int) for v in report.values())
+
+    def test_comma_and_percent_formatting_still_parses(self, tmp_path):
+        """The older string formatting gives the same count as plain numbers."""
+        path = self._write(
+            tmp_path,
+            [
+                'Library,Gene Expression,Fastq ID,LIB1,Number of reads analyzed,"500,000,000"',
+                "Library,Gene Expression,Fastq ID,LIB1,Q30 RNA read,92.00%",
+            ],
+        )
+        assert parse_met_summ(path) == {"GEX_reads": 500_000_000}
+
+    def test_single_row_count_format_with_float_reads(self, tmp_path):
+        """The cellranger count single-row layout tolerates a float read count."""
+        path = tmp_path / "metrics_summary.csv"
+        path.write_text("Number of Reads,Q30 Bases in Barcode\n269666389.0,0.95\n")
+        assert parse_met_summ(str(path)) == {"GEX_reads": 269_666_389}
+
     def test_reads_are_summed_across_fastq_ids(self, tmp_path):
         path = self._write(
             tmp_path,

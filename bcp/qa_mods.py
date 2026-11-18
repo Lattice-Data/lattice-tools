@@ -491,6 +491,20 @@ def resolve_qa_run_context(
     )
 
 
+def _read_counts_to_int(values):
+    """
+    Turn a column of read counts from metrics_summary.csv into int64.
+
+    Depending on how Cell Ranger formatted the file, the column holds strings
+    like "500,000,000", ints, or floats. Floats appear when every value in the
+    column is a plain number and some are fractions (e.g. 0.92), so pandas
+    types the whole column float64 and a count reads back as "500000000.0".
+    Strip thousands separators from the text form, then let pd.to_numeric
+    handle both integer and decimal spellings.
+    """
+    return pd.to_numeric(values.astype(str).str.replace(",", "")).astype("int64")
+
+
 def parse_met_summ(f):
     """
     Pull total sequenced reads per library type out of a metrics_summary.csv.
@@ -511,7 +525,8 @@ def parse_met_summ(f):
     """
     df = pd.read_csv(f)
     if len(df) == 1:
-        report = {"GEX_reads": int(str(df["Number of Reads"].iloc[0]).replace(",", ""))}
+        reads = _read_counts_to_int(df["Number of Reads"])
+        report = {"GEX_reads": int(reads.iloc[0])}
 
         return report
 
@@ -519,12 +534,7 @@ def parse_met_summ(f):
         (df["Metric Name"].isin(METRICS_SUMMARY_READ_METRICS))
         & (df["Grouped By"] == "Fastq ID")
     ]
-    # Metric Value holds strings for some rows and numbers for others; a file
-    # whose every value happens to be numeric parses as float64, where .str
-    # would yield NaN. Normalize to str before stripping thousands separators.
-    metric_value_int = (
-        lib_reads["Metric Value"].astype(str).str.replace(",", "").astype("int64")
-    )
+    metric_value_int = _read_counts_to_int(lib_reads["Metric Value"])
 
     report = {}
     for library_type, key in METRICS_SUMMARY_LIBRARY_TYPES.items():
