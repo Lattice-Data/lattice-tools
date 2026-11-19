@@ -1136,6 +1136,54 @@ class TestParseWebSumm:
         assert isinstance(report["extra"], list)
         assert "gex_alerts" in report
 
+    # --- cellranger 10.1.0 count, bare version string (synthetic) ---
+
+    @staticmethod
+    def _write_count_summary(tmp_path, version):
+        import json
+
+        data = {
+            "summary": {
+                "sample": {"subcommand": "count"},
+                "summary_tab": {
+                    "pipeline_info_table": {
+                        "rows": [
+                            ["Chemistry", "Single Cell 3' v4 (polyA)"],
+                            ["Include Introns", "True"],
+                            ["Transcriptome", "GRCh38-BCP-v48"],
+                            ["Pipeline Version", version],
+                        ]
+                    }
+                },
+                "alarms": {"alarms": []},
+            }
+        }
+        path = tmp_path / "web_summary.html"
+        path.write_text(
+            "<html><head><script>var x = 1;</script>"
+            f"<script>const data = {json.dumps(data)}</script>"
+            "</head><body></body></html>"
+        )
+        return str(path)
+
+    def test_cr10_1_count_bare_version_is_prefixed(self, tmp_path):
+        """10.1.0 count summaries say '10.1.0'; QA expects 'cellranger-10.1.0'."""
+        path = self._write_count_summary(tmp_path, "10.1.0")
+        report = parse_web_summ(path)
+        assert report["software"] == "cellranger-10.1.0"
+        assert report["sub"] == "count"
+        assert report["Transcriptome"] == "GRCh38-BCP-v48"
+
+    def test_prefixed_version_left_alone(self, tmp_path):
+        path = self._write_count_summary(tmp_path, "cellranger-10.1.0")
+        assert parse_web_summ(path)["software"] == "cellranger-10.1.0"
+
+    def test_no_embedded_json_raises(self, tmp_path):
+        path = tmp_path / "web_summary.html"
+        path.write_text("<html><script>var x = 1;</script></html>")
+        with pytest.raises(ValueError, match="No embedded Cell Ranger JSON"):
+            parse_web_summ(str(path))
+
     # --- unsupported format ---
 
     def test_multiome_arc_format_raises_error(self):

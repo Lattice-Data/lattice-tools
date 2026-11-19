@@ -193,7 +193,7 @@ CELLRANGER_FLAT_LAYOUT = frozenset(
 )
 
 # Versions QA accepts, oldest first (the order the error message lists them in).
-# 10.x is always run as `multi`; 9.0.1 may be count or multi.
+# 9.0.1 and 10.x may each be count or multi (10.x is usually multi).
 CELLRANGER_SUPPORTED_VERSIONS = ("cellranger-9.0.1",) + tuple(
     sorted(CELLRANGER_FLAT_LAYOUT)
 )

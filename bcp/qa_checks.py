@@ -1180,7 +1180,9 @@ def validate_processed_group(
     if software == "cellranger-9.0.1":
         sub = report.get("sub", "")
     elif software in CELLRANGER_FLAT_LAYOUT:
-        sub = "multi"
+        # 10.x is usually run as `multi`, but a `count` run (e.g. 3' GEX) writes
+        # the plain count layout; trust the web summary when it says so.
+        sub = "count" if report.get("sub") == "count" else "multi"
     else:
         expected_versions = ", ".join(
             v.replace("cellranger-", "") for v in CELLRANGER_SUPPORTED_VERSIONS

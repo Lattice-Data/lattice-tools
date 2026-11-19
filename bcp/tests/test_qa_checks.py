@@ -1000,6 +1000,53 @@ class TestValidateProcessedGroup:
         assert result["proc_missing"] == []
         assert result["process_extra"] == []
 
+    def test_cr10_1_0_count_validated_as_count(self):
+        """A 10.1.0 `count` run (3' GEX) is checked against the count layout."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["count"]["outs"])
+        expected_outs = _swap_matrix_trio_for_tar(
+            expected_outs, "filtered_feature_bc_matrix"
+        )
+        expected_outs = _swap_matrix_trio_for_tar(
+            expected_outs, "raw_feature_bc_matrix"
+        )
+        expected_outs += ["analysis.tar.gz", "cloupe.cloupe"]
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "3p",
+            "extra": [],
+            "software": "cellranger-10.1.0",
+            "sub": "count",
+            "incl_int": "true",
+            "create-bam": "true",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["errors"] == []
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_cr10_1_0_count_missing_bam_reported(self):
+        """The count layout is enforced for 10.x count runs, not skipped."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = [
+            p
+            for p in cellranger_expected["count"]["outs"]
+            if p != "possorted_genome_bam.bam"
+        ]
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "3p",
+            "extra": [],
+            "software": "cellranger-10.1.0",
+            "sub": "count",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"]
+
     def test_cr10_1_0_nonflex_crispr_adds_flat_feature_reference(self):
         """10.1.0 uses the flat layout, like 10.0.0 and unlike 9.0.1."""
         from qa_constants import cellranger_expected
