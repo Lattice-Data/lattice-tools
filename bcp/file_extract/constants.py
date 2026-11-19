@@ -176,3 +176,7 @@ TRANSIENT_ERROR_CODES = frozenset(
 )
 
 TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+# Info TSV column naming the order a file was sequenced in. Written only when a
+# run spans --resequencing-orders, so single-order outputs keep today's columns.
+SOURCE_ORDER_COLUMN = "source_order"

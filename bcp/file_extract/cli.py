@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, Callable, NoReturn, Sequence
 
 import boto3
 import botocore.httpchecksum
@@ -14,6 +15,7 @@ from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
 from .cram import (
     default_cram_output_name,
     extract_cram,
+    extract_cram_sets,
     only_unmatched_cram_warning,
     scan_cram_listing,
     ucram_found_warning,
@@ -21,11 +23,30 @@ from .cram import (
 from .fastq import (
     default_fastq_output_name,
     extract_fastq,
+    extract_fastq_sets,
     r1_r2_mismatch_warning,
+    scan_fastq_listing,
 )
-from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
+from .h5 import (
+    default_h5_output_name,
+    extract_h5,
+    h5_worker_ceiling,
+    list_h5_targets,
+)
 from .h5_introspect import check_introspection_deps
-from .s3_utils import parse_s3_uri
+from .models import RunSummary
+from .orders import (
+    PROCESSED_LAYOUT,
+    RAW_LAYOUT,
+    OrderError,
+    OrderPrefix,
+    Routing,
+    check_layout,
+    parse_order_prefixes,
+    route,
+)
+from .s3_utils import parse_s3_uri, s3_uri_for
+from .sequence_sets import OutputTarget
 from .scale_flags import validate_raw_subdirs
 from .scale_h5ad import DEFAULT_WORKERS as SCALE_DEFAULT_WORKERS
 from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
@@ -75,6 +96,63 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
         print(f"  WARNING: {warning}")
     if len(warnings) > limit:
         print(f"  ... and {len(warnings) - limit} more warning(s)")
+
+
+def _outside_raw_lines(
+    kind: str,
+    groups: Sequence[tuple[str | None, Sequence[str]]],
+    *,
+    hint: bool,
+    limit: int = PRINT_LIMIT,
+) -> list[str]:
+    """The warning block for deliverables skipped for being outside raw/.
+
+    ``groups`` pairs an order label with its skipped S3 URIs; a single-order
+    run passes one group labelled None and the URIs are listed flat. ``hint``
+    adds the --no-require-raw suggestion, which a re-sequencing run cannot use.
+    """
+    total = sum(len(uris) for _label, uris in groups)
+    if not total:
+        return []
+    lines = [
+        "",
+        f"WARNING: {total} {kind} file(s) were SKIPPED because they are not in "
+        "a raw/ folder.",
+        "These files are NOT in any output:",
+    ]
+    shown = 0
+    for label, uris in groups:
+        if not uris or shown >= limit:
+            continue
+        indent = "  "
+        if label is not None:
+            lines.append(f"  {label} ({len(uris)}):")
+            indent = "    "
+        for uri in uris[: limit - shown]:
+            lines.append(f"{indent}{uri}")
+            shown += 1
+    if total > shown:
+        lines.append(f"  ... and {total - shown} more")
+    if hint:
+        lines.append("To include them, re-run with --no-require-raw.")
+    return lines
+
+
+def _print_outside_raw(
+    kind: str,
+    groups: Sequence[tuple[str | None, Sequence[str]]],
+    *,
+    hint: bool,
+) -> int:
+    """Print the outside-raw/ block, returning how many files it reported."""
+    for line in _outside_raw_lines(kind, groups, hint=hint):
+        print(line)
+    return sum(len(uris) for _label, uris in groups)
+
+
+def _print_outside_raw_reminder(count: int) -> None:
+    if count:
+        print(f"  WARNING: {count} file(s) outside raw/ were skipped; see above")
 
 
 def _positive_int(value: str) -> int:
@@ -132,6 +210,8 @@ def _print_sheet_outputs(options: SheetOptions) -> None:
 
 
 def _run_fastq(args: argparse.Namespace) -> int:
+    if getattr(args, "orders", None):
+        return _run_sequence_orders(args, FASTQ_MODE)
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_fastq_output_name(location.prefix)
     require_raw = not args.no_require_raw
@@ -155,6 +235,16 @@ def _run_fastq(args: argparse.Namespace) -> int:
     print("Listing fastq.gz files ...")
 
     s3_client = boto3.client("s3")
+    # One traversal feeds both the outside-raw/ warning and the work, so the
+    # warning is printed before any per-file request is spent.
+    listing = scan_fastq_listing(
+        s3_client, location.bucket, location.prefix, require_raw=require_raw
+    )
+    skipped = _print_outside_raw(
+        "FASTQ",
+        [(None, [s3_uri_for(location.bucket, k) for k in listing.outside_raw])],
+        hint=True,
+    )
     summary = extract_fastq(
         s3_client,
         location.bucket,
@@ -165,6 +255,7 @@ def _run_fastq(args: argparse.Namespace) -> int:
         retries=args.retries,
         show_progress=not args.quiet,
         sheets=sheet_options,
+        listing=listing,
     )
 
     print(f"Found {summary.total} matching files")
@@ -191,6 +282,7 @@ def _run_fastq(args: argparse.Namespace) -> int:
     _print_sheet_outputs(sheet_options)
 
     _print_warnings(summary.warnings)
+    _print_outside_raw_reminder(skipped)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
@@ -198,6 +290,8 @@ def _run_fastq(args: argparse.Namespace) -> int:
 
 
 def _run_cram(args: argparse.Namespace) -> int:
+    if getattr(args, "orders", None):
+        return _run_sequence_orders(args, CRAM_MODE)
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_cram_output_name(location.prefix)
     require_raw = not args.no_require_raw
@@ -233,6 +327,11 @@ def _run_cram(args: argparse.Namespace) -> int:
         print(f"  WARNING: {ucram_warning}")
 
     print(f"Found {len(listing.targets)} matching files")
+    skipped = _print_outside_raw(
+        "CRAM",
+        [(None, [s3_uri_for(location.bucket, k) for k in listing.outside_raw])],
+        hint=require_raw,
+    )
     if not listing.targets:
         print("Nothing to do. (If this order doesn't use /raw/, try --no-require-raw.)")
         unmatched_warning = only_unmatched_cram_warning(
@@ -269,13 +368,218 @@ def _run_cram(args: argparse.Namespace) -> int:
     _print_sheet_outputs(sheet_options)
 
     _print_warnings(summary.warnings)
+    _print_outside_raw_reminder(skipped)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
     return 0
 
 
+@dataclass(frozen=True)
+class _SequenceMode:
+    """What differs between fastq and cram in a re-sequencing run."""
+
+    kind: str
+    noun: str
+    scan: Callable[..., Any]
+    extract_sets: Callable[..., list[RunSummary]]
+    default_output_name: Callable[[str], str]
+
+
+# The lambdas look the functions up at call time, so tests can patch them here.
+FASTQ_MODE = _SequenceMode(
+    kind="FASTQ",
+    noun="fastq.gz",
+    scan=lambda *a, **k: scan_fastq_listing(*a, **k),
+    extract_sets=lambda *a, **k: extract_fastq_sets(*a, **k),
+    default_output_name=default_fastq_output_name,
+)
+CRAM_MODE = _SequenceMode(
+    kind="CRAM",
+    noun="cram",
+    scan=lambda *a, **k: scan_cram_listing(*a, **k),
+    extract_sets=lambda *a, **k: extract_cram_sets(*a, **k),
+    default_output_name=default_cram_output_name,
+)
+
+
+def _group_counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{gid} ({n} file(s))" for gid, n in sorted(counts.items()))
+
+
+def _print_routing(routing: Routing) -> None:
+    """Say, per order, what was found and where its files went."""
+    main = routing.reports[0].order
+    print("\nOrders:")
+    for report in routing.reports:
+        order = report.order
+        print(f"  {order.cro_order} ({order.role}) {order.uri}")
+        if order.is_primary:
+            gids = ", ".join(report.group_ids) or "(none)"
+            print(f"    {report.matched} file(s); GroupIDs: {gids}")
+            continue
+        print(f"    {report.matched} file(s)")
+        if report.added_to_main:
+            print(
+                f"    Added to {main.cro_order}: {_group_counts(report.added_to_main)}"
+            )
+        if report.new_groups:
+            print(
+                f"    New GroupIDs, written to {order.cro_order} outputs: "
+                f"{_group_counts(report.new_groups)}"
+            )
+
+
+def _run_sequence_orders(args: argparse.Namespace, mode: _SequenceMode) -> int:
+    """fastq or cram over a main order plus --resequencing-orders."""
+    orders: list[OrderPrefix] = args.orders
+    main = orders[0]
+    output = args.output or mode.default_output_name(main.prefix)
+    sheet_options = _sheet_options(args, output=output)
+    # _sheet_options places both sheets in the output directory.
+    out_dir = sheet_options.sequence_file_path.parent
+
+    print(f"Bucket: {main.bucket}")
+    print(f"Main order: {main.cro_order} ({main.uri})")
+    print(
+        "Re-sequencing orders: "
+        + ", ".join(f"{o.cro_order} ({o.uri})" for o in orders[1:])
+    )
+    print(
+        f"Lab: {sheet_options.lab.path} | alias namespace: "
+        f"{sheet_options.lab.namespace}"
+    )
+    print(
+        f"CRO order: {sheet_options.cro_order} | pilot: "
+        f"{'TRUE' if sheet_options.is_pilot_order else 'FALSE'} | platform: "
+        f"{sheet_options.sequencing_platform}"
+    )
+    if sheet_options.cram_slot is not None:
+        print(f"CRAM slot: {CRAM_SLOT_COLUMNS[sheet_options.cram_slot]}")
+    order_warning = cro_order_mismatch_warning(sheet_options.cro_order, main.prefix)
+    if order_warning:
+        print(f"  WARNING: {order_warning}")
+    print(f"Listing {mode.noun} files in {len(orders)} orders ...")
+
+    s3_client = boto3.client("s3")
+    listings = [
+        (order, mode.scan(s3_client, main.bucket, order.prefix, require_raw=True))
+        for order in orders
+    ]
+    for order, listing in listings:
+        counts = getattr(listing, "warnings", None)
+        if counts is None:
+            continue
+        ucram_warning = ucram_found_warning(counts.ucram_count)
+        if ucram_warning:
+            print(f"  WARNING: {order.cro_order}: {ucram_warning}")
+        if not listing.targets:
+            unmatched = only_unmatched_cram_warning(counts.unmatched_cram_count)
+            if unmatched:
+                print(f"  WARNING: {order.cro_order}: {unmatched}")
+
+    # Refuse anything but the 10x layout before a single file is fetched.
+    check_layout([(o, listing.targets) for o, listing in listings], RAW_LAYOUT)
+    routing = route([(o, listing.targets) for o, listing in listings])
+    _print_routing(routing)
+    skipped = _print_outside_raw(
+        mode.kind,
+        [
+            (o.cro_order, [s3_uri_for(o.bucket, k) for k in listing.outside_raw])
+            for o, listing in listings
+        ],
+        hint=False,
+    )
+    _print_warnings(routing.warnings)
+
+    sets = [s for s in routing.output_sets if s.files]
+    targets: list[OutputTarget] = []
+    for output_set in sets:
+        owner = output_set.owner
+        if owner.is_primary:
+            set_output, set_sheets = output, sheet_options
+        else:
+            set_output = str(out_dir / mode.default_output_name(owner.prefix))
+            sequence_file, sequence_file_set = default_sheet_output_names(
+                owner.cro_order, out_dir=out_dir
+            )
+            set_sheets = replace(
+                sheet_options,
+                cro_order=owner.cro_order,
+                sequence_file_path=sequence_file,
+                sequence_file_set_path=sequence_file_set,
+            )
+        targets.append(
+            OutputTarget(
+                output_path=set_output,
+                sheets=set_sheets,
+                files=[(r.obj, r.order.cro_order) for r in output_set.files],
+            )
+        )
+
+    total = sum(len(t.files) for t in targets)
+    print(f"\nFound {total} matching files across {len(orders)} orders")
+    if not targets:
+        print("Nothing to do.")
+        return 1 if args.strict and routing.empty_orders else 0
+
+    summaries = mode.extract_sets(
+        s3_client,
+        main.bucket,
+        targets,
+        source_order_column=True,
+        workers=args.workers,
+        retries=args.retries,
+        show_progress=not args.quiet,
+    )
+
+    for output_set, target, summary in zip(sets, targets, summaries):
+        owner = output_set.owner
+        if owner.is_primary:
+            added = sum(1 for r in output_set.files if not r.order.is_primary)
+            extra = f", plus {added} re-sequenced file(s)" if added else ""
+            print(f"\nOutput set {owner.cro_order} (main order{extra})")
+        else:
+            print(
+                f"\nOutput set {owner.cro_order} (new GroupIDs from "
+                "re-sequencing order)"
+            )
+        print(f"  Total: {summary.total}")
+        print(
+            f"  CRC64NVME retrieved: {summary.crc_ok} | "
+            f"failed: {summary.total - summary.crc_ok}"
+        )
+        print(
+            f"  read_count retrieved: {summary.enrichment_ok} | "
+            f"failed: {summary.total - summary.enrichment_ok}"
+        )
+        if mode is FASTQ_MODE:
+            if summary.read_tally:
+                tally = ", ".join(
+                    f"{k}={v}" for k, v in sorted(summary.read_tally.items())
+                )
+                print(f"  By read: {tally}")
+            warning = r1_r2_mismatch_warning(summary.read_tally)
+            if warning:
+                print(f"  WARNING: {warning}")
+        print(f"  SequenceFileSets: {summary.set_count}")
+        print(f"  Output: {target.output_path}")
+        if target.sheets is not None:
+            _print_sheet_outputs(target.sheets)
+        _print_warnings(summary.warnings)
+        _print_failures(summary.failures)
+
+    print()
+    _print_outside_raw_reminder(skipped)
+    has_failures = any(summary.has_failures for summary in summaries)
+    if args.strict and (has_failures or routing.empty_orders):
+        return 1
+    return 0
+
+
 def _run_h5(args: argparse.Namespace) -> int:
+    if getattr(args, "orders", None):
+        return _run_h5_orders(args)
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_h5_output_name(location.prefix)
     do_introspect = not args.no_introspect
@@ -332,6 +636,107 @@ def _run_h5(args: argparse.Namespace) -> int:
     _print_warnings(summary.warnings)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
+def _run_h5_orders(args: argparse.Namespace) -> int:
+    """h5 over a main order plus --resequencing-orders."""
+    orders: list[OrderPrefix] = args.orders
+    main = orders[0]
+    output = args.output or default_h5_output_name(main.prefix)
+    out_dir = Path(output).parent
+    do_introspect = not args.no_introspect
+    do_md5 = not args.no_md5
+
+    if do_introspect:
+        check_introspection_deps()
+
+    lab = LabIdentity.parse(args.lab)
+
+    print(f"Bucket: {main.bucket}")
+    print(f"Main order: {main.cro_order} ({main.uri})")
+    print(
+        "Re-sequencing orders: "
+        + ", ".join(f"{o.cro_order} ({o.uri})" for o in orders[1:])
+    )
+    print(f"Lab: {lab.name}")
+    print(f"Target filename: {args.target_filename}")
+    print(
+        f"Introspect: {do_introspect} | genome: {args.genome} | "
+        f"metrics: {args.metrics} | md5: {do_md5}"
+    )
+    _print_md5_warning(do_md5)
+    print(f"Listing matching h5 files in {len(orders)} orders ...")
+
+    pool_size = h5_worker_ceiling(
+        do_introspect=do_introspect, do_md5=do_md5, workers=args.workers
+    )
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
+    listings = [
+        (
+            order,
+            list_h5_targets(s3_client, main.bucket, order.prefix, args.target_filename),
+        )
+        for order in orders
+    ]
+    # Refuse anything but the 10x layout before a single file is read.
+    check_layout(listings, PROCESSED_LAYOUT)
+    routing = route(listings)
+    _print_routing(routing)
+    _print_warnings(routing.warnings)
+
+    sets = [s for s in routing.output_sets if s.files]
+    total = sum(len(s.files) for s in sets)
+    print(f"\nFound {total} matching files across {len(orders)} orders")
+    if not sets:
+        print("Nothing to do.")
+        return 1 if args.strict and routing.empty_orders else 0
+
+    has_failures = False
+    for output_set in sets:
+        owner = output_set.owner
+        if owner.is_primary:
+            set_output = output
+            added = sum(1 for r in output_set.files if not r.order.is_primary)
+            extra = f", plus {added} re-sequenced file(s)" if added else ""
+            heading = f"Output set {owner.cro_order} (main order{extra})"
+        else:
+            set_output = str(out_dir / default_h5_output_name(owner.prefix))
+            heading = (
+                f"Output set {owner.cro_order} (new GroupIDs from re-sequencing order)"
+            )
+        summary = extract_h5(
+            s3_client,
+            main.bucket,
+            main.prefix,
+            set_output,
+            lab=lab.name,
+            target_filename=args.target_filename,
+            do_introspect=do_introspect,
+            do_genome=args.genome,
+            do_metrics=args.metrics,
+            do_md5=do_md5,
+            workers=args.workers,
+            retries=args.retries,
+            show_progress=not args.quiet,
+            targets=[r.obj for r in output_set.files],
+            source_order_by_key={
+                r.obj.key: r.order.cro_order for r in output_set.files
+            },
+        )
+        print(f"\n{heading}")
+        print(f"  Total: {summary.total} | checksum OK: {summary.crc_ok}", end="")
+        if do_md5:
+            print(f" | md5 OK: {summary.md5_ok}", end="")
+        if do_introspect:
+            print(f" | introspect OK: {summary.enrichment_ok}", end="")
+        print(f"\n  Output: {set_output}")
+        _print_warnings(summary.warnings)
+        _print_failures(summary.failures)
+        has_failures = has_failures or summary.has_failures
+
+    if args.strict and (has_failures or routing.empty_orders):
         return 1
     return 0
 
@@ -433,6 +838,29 @@ def _invalid_uri_exit(message: str) -> NoReturn:
     raise SystemExit(2)
 
 
+def _parse_orders(args: argparse.Namespace) -> None:
+    """Check --resequencing-orders before any S3 call; store them on args."""
+    values = getattr(args, "resequencing_orders", None)
+    args.orders = None
+    if values is None:
+        return
+    if getattr(args, "no_require_raw", False):
+        _invalid_uri_exit(
+            "--no-require-raw cannot be combined with --resequencing-orders: "
+            "routing by GroupID needs every file in the 10x layout "
+            f"{{order}}/{RAW_LAYOUT.description}"
+        )
+    try:
+        args.orders = parse_order_prefixes(
+            args.s3_uri,
+            values,
+            main_cro_order=getattr(args, "cro_order", None),
+            validate_order_id=validate_cro_order,
+        )
+    except (OrderError, SheetBuildError) as exc:
+        _invalid_uri_exit(str(exc))
+
+
 def _add_sheet_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the inputs the Lattice submission sheets cannot derive from S3."""
     parser.add_argument(
@@ -466,6 +894,23 @@ def _add_sheet_arguments(parser: argparse.ArgumentParser) -> None:
         "--out-dir",
         default=None,
         help="Directory for the sheet TSVs (default: alongside --output)",
+    )
+
+
+def _add_resequencing_argument(parser: argparse.ArgumentParser, layout: str) -> None:
+    """Add --resequencing-orders. Not on the shared parent: scale_h5ad lacks it."""
+    parser.add_argument(
+        "--resequencing-orders",
+        nargs="+",
+        default=None,
+        metavar="S3_URI",
+        help=(
+            "Re-sequencing order folders in the same bucket, space- and/or "
+            "comma-separated. A file whose GroupID (first folder below its "
+            "order) the main order also has is added to the main order's "
+            "outputs; new GroupIDs get outputs named after their order. 10x "
+            f"layout only: {{order}}/{layout}"
+        ),
     )
 
 
@@ -523,9 +968,13 @@ def build_parser() -> argparse.ArgumentParser:
     fastq.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file enrichment fails",
+        help=(
+            "Exit 1 if any per-file enrichment fails, or if a "
+            "--resequencing-orders entry matches no files"
+        ),
     )
     _add_sheet_arguments(fastq)
+    _add_resequencing_argument(fastq, RAW_LAYOUT.description)
 
     cram = subparsers.add_parser(
         "cram",
@@ -555,7 +1004,10 @@ def build_parser() -> argparse.ArgumentParser:
     cram.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file enrichment fails",
+        help=(
+            "Exit 1 if any per-file enrichment fails, or if a "
+            "--resequencing-orders entry matches no files"
+        ),
     )
     _add_sheet_arguments(cram)
     cram.add_argument(
@@ -564,6 +1016,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(CRAM_SLOT_COLUMNS),
         help="SequenceFileSet slot the deliverable CRAM fills",
     )
+    _add_resequencing_argument(cram, RAW_LAYOUT.description)
 
     h5 = subparsers.add_parser(
         "h5",
@@ -642,8 +1095,12 @@ def build_parser() -> argparse.ArgumentParser:
     h5.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file enrichment fails",
+        help=(
+            "Exit 1 if any per-file enrichment fails, or if a "
+            "--resequencing-orders entry matches no files"
+        ),
     )
+    _add_resequencing_argument(h5, PROCESSED_LAYOUT.description)
 
     scale_h5ad = subparsers.add_parser(
         "scale_h5ad",
@@ -749,6 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
         parse_s3_uri(args.s3_uri)
     except ValueError as exc:
         _invalid_uri_exit(str(exc))
+    _parse_orders(args)
 
     try:
         if args.command == "fastq":
@@ -763,6 +1221,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except ScaleExtractError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OrderError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")

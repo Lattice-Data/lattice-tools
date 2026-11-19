@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -342,6 +343,66 @@ def test_validate_aliases_rejects_same_basename_in_two_dirs() -> None:
     assert "example-lab:s_L001_R1_001.fastq.gz" in message
     # Both the file alias and the set alias collide, so both are reported.
     assert "example-lab:s_L001" in message
+
+
+def _ordered(record: SequenceFileRecord, cro_order: str) -> SequenceFileRecord:
+    return replace(record, cro_order=cro_order)
+
+
+def test_validate_aliases_names_the_order_of_each_colliding_file() -> None:
+    records = [
+        _ordered(_record("p/ORDER_A/G1/raw/s_L001_R1_001.fastq.gz"), "ORDER_A"),
+        _ordered(_record("p/ORDER_B/G1/raw/s_L001_R1_001.fastq.gz"), "ORDER_B"),
+    ]
+    with pytest.raises(SheetBuildError) as exc:
+        validate_aliases(records, namespace="example-lab")
+    message = str(exc.value)
+    assert "p/ORDER_A/G1/raw/s_L001_R1_001.fastq.gz (ORDER_A)" in message
+    assert "p/ORDER_B/G1/raw/s_L001_R1_001.fastq.gz (ORDER_B)" in message
+    assert "p/ORDER_A/G1/raw (ORDER_A), p/ORDER_B/G1/raw (ORDER_B)" in message
+
+
+def test_validate_aliases_message_untagged_without_orders() -> None:
+    records = [
+        _record(f"{PREFIX}S1/raw/s_L001_R1_001.fastq.gz"),
+        _record(f"{PREFIX}S2/raw/s_L001_R1_001.fastq.gz"),
+    ]
+    with pytest.raises(SheetBuildError) as exc:
+        validate_aliases(records, namespace="example-lab")
+    assert "(" not in str(exc.value).split("\n", 1)[1]
+
+
+def test_group_records_carries_the_members_order() -> None:
+    records = [
+        _ordered(_record("p/ORDER_A/G1/raw/r1_L001_R1_001.fastq.gz"), "ORDER_A"),
+        _ordered(_record("p/ORDER_A/G1/raw/r1_L001_R2_001.fastq.gz"), "ORDER_A"),
+        _ordered(_record("p/ORDER_B/G1/raw/r2_L001_R1_001.fastq.gz"), "ORDER_B"),
+        _ordered(_record("p/ORDER_B/G1/raw/r2_L001_R2_001.fastq.gz"), "ORDER_B"),
+    ]
+    groups, _ = group_records(records)
+    assert [(g.set_stem, g.cro_order) for g in groups] == [
+        ("r1_L001", "ORDER_A"),
+        ("r2_L001", "ORDER_B"),
+    ]
+
+
+def test_group_records_rejects_a_set_spanning_orders() -> None:
+    records = [
+        _ordered(_record("p/G1/raw/s_L001_R1_001.fastq.gz"), "ORDER_A"),
+        _ordered(_record("p/G1/raw/s_L001_R2_001.fastq.gz"), "ORDER_B"),
+    ]
+    with pytest.raises(SheetBuildError, match="several orders"):
+        group_records(records)
+
+
+def test_sequence_file_set_row_reports_the_sets_own_order(tmp_path: Path) -> None:
+    records = [
+        _ordered(_record("p/ORDER_B/G1/raw/r2_L001_R1_001.fastq.gz"), "ORDER_B"),
+    ]
+    groups, _ = group_records(records)
+    row = sequence_file_set_row(groups[0], options=_options(tmp_path))
+    values = dict(zip(SEQUENCE_FILE_SET_COLUMNS, row))
+    assert values["CRO_order"] == "ORDER_B"
 
 
 def test_sequence_file_row_values() -> None:

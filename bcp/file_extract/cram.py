@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
-from .constants import CRAM_COLUMNS, SHEET_HELPER_COLUMNS
-from .enrich import fetch_results
+from .constants import CRAM_COLUMNS, SHEET_HELPER_COLUMNS, SOURCE_ORDER_COLUMN
 from .models import ListedObject, RunSummary
-from .s3_utils import s3_uri_for
+from .sequence_sets import OutputTarget, plan_and_fetch
 from .sheets import (
     SequenceFileRecord,
     SheetOptions,
@@ -14,7 +13,6 @@ from .sheets import (
     enrich_record,
     group_records,
     sample_dir_for,
-    validate_plan,
     write_sheets,
 )
 from .tsv_writer import TsvWriter
@@ -44,8 +42,11 @@ def default_cram_output_name(prefix: str) -> str:
     return f"{order_name}_cram_info.tsv"
 
 
-def cram_columns() -> list[str]:
-    return list(CRAM_COLUMNS) + list(SHEET_HELPER_COLUMNS)
+def cram_columns(*, source_order: bool = False) -> list[str]:
+    columns = list(CRAM_COLUMNS) + list(SHEET_HELPER_COLUMNS)
+    if source_order:
+        columns.append(SOURCE_ORDER_COLUMN)
+    return columns
 
 
 def _diagnostic_row(
@@ -53,9 +54,10 @@ def _diagnostic_row(
     result: dict[str, object],
     *,
     namespace: str | None,
+    source_order: bool = False,
 ) -> list[object]:
     set_alias = record.set_alias(namespace) if namespace else record.set_stem
-    return [
+    row: list[object] = [
         record.filename,
         record.s3_uri,
         record.file_size,
@@ -66,6 +68,9 @@ def _diagnostic_row(
         sample_dir_for(record.key),
         set_alias,
     ]
+    if source_order:
+        row.append(record.cro_order)
+    return row
 
 
 @dataclass(frozen=True)
@@ -78,10 +83,16 @@ class CramListingWarnings:
 
 @dataclass(frozen=True)
 class CramListing:
-    """One traversal of an order prefix, classified into targets and warnings."""
+    """One traversal of an order prefix, classified into targets and warnings.
+
+    ``outside_raw`` holds the keys of CRAMs that would be deliverables but are
+    not under a /raw/ folder. They are reported so they are not dropped
+    silently; it stays empty under --no-require-raw, which includes them.
+    """
 
     targets: tuple[ListedObject, ...] = ()
     warnings: CramListingWarnings = field(default_factory=CramListingWarnings)
+    outside_raw: tuple[str, ...] = ()
 
 
 def scan_cram_listing(
@@ -101,6 +112,7 @@ def scan_cram_listing(
     delivery holds more than this run processed.
     """
     targets: list[ListedObject] = []
+    outside_raw: list[str] = []
     unmatched = 0
     ucram = 0
     paginator = s3_client.get_paginator("list_objects_v2")
@@ -113,12 +125,15 @@ def scan_cram_listing(
                 unmatched += 1
             elif is_target_file(key, require_raw=require_raw):
                 targets.append(ListedObject(key=key, size_bytes=obj["Size"]))
+            elif require_raw and is_target_file(key, require_raw=False):
+                outside_raw.append(key)
     return CramListing(
         targets=tuple(targets),
         warnings=CramListingWarnings(
             unmatched_cram_count=unmatched,
             ucram_count=ucram,
         ),
+        outside_raw=tuple(outside_raw),
     )
 
 
@@ -172,38 +187,74 @@ def extract_cram(
     """
     if listing is None:
         listing = scan_cram_listing(s3_client, bucket, prefix, require_raw=require_raw)
-    targets = listing.targets
-    summary = RunSummary(total=len(targets))
-    if not targets:
-        return summary
-
-    plan = sorted(
-        (
-            build_cram_record(
-                key=obj.key,
-                s3_uri=s3_uri_for(bucket, obj.key),
-                file_size=obj.size_bytes,
-            )
-            for obj in targets
-        ),
-        key=lambda record: record.sort_key,
+    if not listing.targets:
+        return RunSummary(total=0)
+    target = OutputTarget(
+        output_path=output_path,
+        sheets=sheets,
+        files=[(obj, "") for obj in listing.targets],
     )
-    namespace = sheets.lab.namespace if sheets is not None else None
-    if namespace is not None:
-        # Before spending a request per file: these listings are unsubmittable.
-        validate_plan(plan, namespace=namespace)
-
-    results = fetch_results(
+    return extract_cram_sets(
         s3_client,
         bucket,
-        [record.key for record in plan],
+        [target],
+        workers=workers,
+        retries=retries,
+        show_progress=show_progress,
+        inline=inline,
+    )[0]
+
+
+def extract_cram_sets(
+    s3_client: Any,
+    bucket: str,
+    targets: Sequence[OutputTarget],
+    *,
+    source_order_column: bool = False,
+    workers: int | None = None,
+    retries: int = 5,
+    show_progress: bool = True,
+    inline: bool = False,
+) -> list[RunSummary]:
+    """Enrich and write every output set of one run, one summary per set.
+
+    All sets are validated together and fetched in one pass; see
+    sequence_sets.plan_and_fetch.
+    """
+    plans, results = plan_and_fetch(
+        s3_client,
+        bucket,
+        targets,
+        build_cram_record,
         retries=retries,
         workers=workers,
         show_progress=show_progress,
         inline=inline,
     )
+    return [
+        _write_cram_set(
+            plan,
+            results,
+            target,
+            source_order_column=source_order_column,
+        )
+        for plan, target in zip(plans, targets)
+    ]
 
-    writer = TsvWriter(output_path, cram_columns())
+
+def _write_cram_set(
+    plan: Sequence[SequenceFileRecord],
+    results: dict[str, dict[str, object]],
+    target: OutputTarget,
+    *,
+    source_order_column: bool,
+) -> RunSummary:
+    sheets = target.sheets
+    summary = RunSummary(total=len(plan))
+    namespace = sheets.lab.namespace if sheets is not None else None
+    writer = TsvWriter(
+        target.output_path, cram_columns(source_order=source_order_column)
+    )
     records: list[SequenceFileRecord] = []
     for record in plan:
         result = results[record.key]
@@ -216,7 +267,14 @@ def extract_cram(
         if crc_err or meta_err:
             summary.failures.append((record.key, crc_err, meta_err))
 
-        writer.append_row(_diagnostic_row(record, result, namespace=namespace))
+        writer.append_row(
+            _diagnostic_row(
+                record,
+                result,
+                namespace=namespace,
+                source_order=source_order_column,
+            )
+        )
         records.append(
             enrich_record(
                 record,

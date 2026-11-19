@@ -16,10 +16,11 @@ from .constants import (
     H5_INTROSPECT_COLUMNS,
     H5_METRICS_COLUMNS,
     MD5_COLUMN,
+    SOURCE_ORDER_COLUMN,
 )
 from .fastq import is_target_file
 from .h5_introspect import introspect_h5
-from .models import NO_ERROR_MESSAGE, RunSummary, failure_detail
+from .models import NO_ERROR_MESSAGE, ListedObject, RunSummary, failure_detail
 from .retry import retry_with_backoff
 from .s3_utils import (
     fetch_crc64nvme,
@@ -107,6 +108,21 @@ def parse_metrics_cells_from_text(text: str) -> int:
 
 def _matches_target_filename(key: str, target_filename: str) -> bool:
     return key.rsplit("/", 1)[-1] == target_filename
+
+
+def list_h5_targets(
+    s3_client: Any,
+    bucket: str,
+    prefix: str,
+    target_filename: str = DEFAULT_H5_TARGET_FILENAME,
+) -> list[ListedObject]:
+    """List the h5 matrices named ``target_filename`` under the prefix."""
+    return list_objects_with_size(
+        s3_client,
+        bucket,
+        prefix,
+        predicate=lambda k: _matches_target_filename(k, target_filename),
+    )
 
 
 def map_feature_counts(
@@ -304,6 +320,7 @@ def h5_columns(
     do_genome: bool,
     do_metrics: bool,
     do_md5: bool,
+    source_order: bool = False,
 ) -> list[str]:
     cols = [col for col in H5_BASE_COLUMNS if do_md5 or col != MD5_COLUMN]
     if do_introspect:
@@ -319,6 +336,8 @@ def h5_columns(
         cols.append("h5_error")
     if do_metrics:
         cols.append("metrics_error")
+    if source_order:
+        cols.append(SOURCE_ORDER_COLUMN)
     return cols
 
 
@@ -342,14 +361,17 @@ def extract_h5(
     workers: int | None = None,
     retries: int = 5,
     show_progress: bool = True,
+    targets: Sequence[ListedObject] | None = None,
+    source_order_by_key: dict[str, str] | None = None,
 ) -> RunSummary:
-    """List h5 matrices, enrich metadata, write TSV."""
-    targets = list_objects_with_size(
-        s3_client,
-        bucket,
-        prefix,
-        predicate=lambda k: _matches_target_filename(k, target_filename),
-    )
+    """List h5 matrices, enrich metadata, write TSV.
+
+    Pass ``targets`` to write files a caller already listed and routed -- a
+    re-sequencing run does, once per output set. ``source_order_by_key`` adds
+    the ``source_order`` column, naming the order each h5 came from.
+    """
+    if targets is None:
+        targets = list_h5_targets(s3_client, bucket, prefix, target_filename)
     summary = RunSummary(total=len(targets))
     if not targets:
         return summary
@@ -367,6 +389,7 @@ def extract_h5(
         do_genome=do_genome,
         do_metrics=do_metrics,
         do_md5=do_md5,
+        source_order=source_order_by_key is not None,
     )
     writer = TsvWriter(output_path, columns)
     size_by_key = {obj.key: obj.size_bytes for obj in targets}
@@ -429,6 +452,8 @@ def extract_h5(
                     row.append(r["h5_error"])
                 if do_metrics:
                     row.append(r["metrics_error"])
+                if source_order_by_key is not None:
+                    row.append(source_order_by_key[key])
 
                 writer.append_row(row)
 
