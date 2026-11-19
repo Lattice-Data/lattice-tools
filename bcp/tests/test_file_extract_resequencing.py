@@ -517,9 +517,11 @@ def _h5_rows(path: Path) -> dict[str, dict[str, str]]:
         return {row["s3_uri"]: row for row in csv.DictReader(fh, delimiter="\t")}
 
 
-def test_h5_routes_known_and_new_groups(tmp_path: Path) -> None:
+def test_h5_raw_only_main_group_takes_the_reseq_h5(tmp_path: Path) -> None:
+    # ORDER_A holds GRP_001 only as raw/; its h5 was made in ORDER_B.
     keys = [
-        _h5("ORDER_A", "GRP_001"),
+        _h5("ORDER_A", "GRP_002"),
+        f"{PROJ}ORDER_A/GRP_002/raw/RUN1-G2_R1_001.fastq.gz",
         f"{PROJ}ORDER_A/GRP_001/raw/RUN1_R1_001.fastq.gz",
         _h5("ORDER_B", "GRP_001"),
         f"{PROJ}ORDER_B/GRP_001/raw/RUN2_R1_001.fastq.gz",
@@ -530,15 +532,15 @@ def test_h5_routes_known_and_new_groups(tmp_path: Path) -> None:
 
     main_rows = _h5_rows(tmp_path / "ORDER_A_h5_info.tsv")
     assert set(main_rows) == {
-        f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_001')}",
+        f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_002')}",
         f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_001')}",
     }
-    original = main_rows[f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_001')}"]
+    original = main_rows[f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_002')}"]
     resequenced = main_rows[f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_001')}"]
     assert original["source_order"] == "ORDER_A"
     assert resequenced["source_order"] == "ORDER_B"
     # derived_from stays inside each file's own order.
-    assert original["derived_from"] == '["example-lab:RUN1_R1_001.fastq.gz"]'
+    assert original["derived_from"] == '["example-lab:RUN1-G2_R1_001.fastq.gz"]'
     assert resequenced["derived_from"] == '["example-lab:RUN2_R1_001.fastq.gz"]'
 
     new_rows = _h5_rows(tmp_path / "ORDER_B_h5_info.tsv")
@@ -546,6 +548,31 @@ def test_h5_routes_known_and_new_groups(tmp_path: Path) -> None:
     assert new_rows[f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_003')}"]["library"] == (
         "GRP_003"
     )
+
+
+@pytest.mark.parametrize(
+    "reseq_processed",
+    [_h5("ORDER_B", "GRP_001"), f"{PROJ}ORDER_B/GRP_001/processed/other.h5"],
+)
+def test_h5_shared_group_with_two_processed_folders_errors(
+    reseq_processed: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    keys = [
+        _h5("ORDER_A", "GRP_001"),
+        reseq_processed,
+        f"{PROJ}ORDER_B/GRP_001/raw/RUN2_R1_001.fastq.gz",
+        _h5("ORDER_B", "GRP_003"),
+    ]
+    assert _run_h5(keys, _reseq("ORDER_B"), tmp_path) == 1
+    err = capsys.readouterr().err
+    assert "GroupID GRP_001:" in err
+    assert f"s3://{BUCKET}/{PROJ}ORDER_A/GRP_001/processed/" in err
+    assert f"s3://{BUCKET}/{PROJ}ORDER_B/GRP_001/processed/" in err
+    assert "GRP_003" not in err
+    # Stopped before any output was written.
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_h5_single_order_has_no_source_order_column(tmp_path: Path) -> None:

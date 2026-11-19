@@ -11,10 +11,12 @@ from file_extract.orders import (
     OrderError,
     OrderPrefix,
     check_layout,
+    check_single_processed,
     group_id_for,
     order_id_from_prefix,
     parse_order_prefixes,
     route,
+    scan_order_folders,
     split_order_values,
 )
 from file_extract.sheets import validate_cro_order
@@ -358,3 +360,78 @@ def test_route_warns_when_main_order_is_empty() -> None:
 def test_route_requires_main_order_first() -> None:
     with pytest.raises(ValueError):
         route([(_order("ORDER_B"), [])])
+
+
+# --- GroupID folders and processed/ ------------------------------------------
+
+
+def _folders(order, *rel):
+    return scan_order_folders(order, _objects(order.prefix, *rel))
+
+
+def test_scan_order_folders_counts_raw_only_groups() -> None:
+    a = OrderPrefix(BUCKET, "proj/ORDER_A/", "ORDER_A", is_primary=True)
+    folders = _folders(
+        a,
+        "GRP_001/raw/x_R1_001.fastq.gz",
+        "GRP_002/processed/outs/m.h5",
+        "md5.txt",
+        "raw/stray.fastq.gz",
+    )
+    assert folders.group_ids == {"GRP_001", "GRP_002"}
+    assert folders.processed == {"GRP_002"}
+
+
+def test_check_single_processed_allows_one_processed_per_shared_group() -> None:
+    a = OrderPrefix(BUCKET, "proj/ORDER_A/", "ORDER_A", is_primary=True)
+    b = OrderPrefix(BUCKET, "proj/ORDER_B/", "ORDER_B")
+    c = OrderPrefix(BUCKET, "proj/ORDER_C/", "ORDER_C")
+    check_single_processed(
+        [
+            _folders(a, "GRP_001/raw/x.fastq.gz", "GRP_002/processed/m.h5"),
+            _folders(b, "GRP_001/processed/m.h5", "GRP_003/processed/m.h5"),
+            # GRP_003 is not the main order's, so two processed/ is not checked.
+            _folders(c, "GRP_002/raw/y.fastq.gz", "GRP_003/processed/m.h5"),
+        ]
+    )
+
+
+def test_check_single_processed_errors_and_names_every_folder() -> None:
+    a = OrderPrefix(BUCKET, "proj/ORDER_A/", "ORDER_A", is_primary=True)
+    b = OrderPrefix(BUCKET, "proj/ORDER_B/", "ORDER_B")
+    c = OrderPrefix(BUCKET, "proj/ORDER_C/", "ORDER_C")
+    with pytest.raises(OrderError) as exc:
+        check_single_processed(
+            [
+                _folders(a, "GRP_001/raw/x.fastq.gz", "GRP_002/processed/m.h5"),
+                _folders(b, "GRP_001/processed/m.h5"),
+                _folders(c, "GRP_001/processed/m.h5", "GRP_002/processed/m.h5"),
+            ]
+        )
+    message = str(exc.value)
+    assert message.startswith("2 GroupID(s)")
+    for uri in (
+        f"s3://{BUCKET}/proj/ORDER_B/GRP_001/processed/",
+        f"s3://{BUCKET}/proj/ORDER_C/GRP_001/processed/",
+        f"s3://{BUCKET}/proj/ORDER_A/GRP_002/processed/",
+        f"s3://{BUCKET}/proj/ORDER_C/GRP_002/processed/",
+    ):
+        assert uri in message
+    assert f"s3://{BUCKET}/proj/ORDER_A/GRP_001/processed/" not in message
+
+
+def test_route_main_group_ids_route_raw_only_groups_to_main() -> None:
+    a = OrderPrefix(BUCKET, "proj/ORDER_A/", "ORDER_A", is_primary=True)
+    b = OrderPrefix(BUCKET, "proj/ORDER_B/", "ORDER_B")
+    routing = route(
+        [
+            (a, _objects(a.prefix, "GRP_002/processed/m.h5")),
+            (b, _objects(b.prefix, "GRP_001/processed/m.h5")),
+        ],
+        main_group_ids={"GRP_001", "GRP_002"},
+    )
+    assert len(routing.output_sets) == 1
+    assert [r.obj.key for r in routing.output_sets[0].files] == [
+        "proj/ORDER_A/GRP_002/processed/m.h5",
+        "proj/ORDER_B/GRP_001/processed/m.h5",
+    ]

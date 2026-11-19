@@ -31,7 +31,7 @@ from .h5 import (
     default_h5_output_name,
     extract_h5,
     h5_worker_ceiling,
-    list_h5_targets,
+    select_h5_targets,
 )
 from .h5_introspect import check_introspection_deps
 from .models import RunSummary
@@ -42,10 +42,12 @@ from .orders import (
     OrderPrefix,
     Routing,
     check_layout,
+    check_single_processed,
     parse_order_prefixes,
     route,
+    scan_order_folders,
 )
-from .s3_utils import parse_s3_uri, s3_uri_for
+from .s3_utils import list_objects_with_size, parse_s3_uri, s3_uri_for
 from .sequence_sets import OutputTarget
 from .scale_flags import validate_raw_subdirs
 from .scale_h5ad import DEFAULT_WORKERS as SCALE_DEFAULT_WORKERS
@@ -673,16 +675,22 @@ def _run_h5_orders(args: argparse.Namespace) -> int:
         do_introspect=do_introspect, do_md5=do_md5, workers=args.workers
     )
     s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
-    listings = [
-        (
-            order,
-            list_h5_targets(s3_client, main.bucket, order.prefix, args.target_filename),
-        )
+    # One listing of every key per order: the h5s to write, and the GroupID
+    # folders, so a GroupID the main order holds only as raw/ is still its.
+    everything = [
+        (order, list_objects_with_size(s3_client, main.bucket, order.prefix))
         for order in orders
     ]
+    listings = [
+        (order, select_h5_targets(objects, args.target_filename))
+        for order, objects in everything
+    ]
+    folders = [scan_order_folders(order, objects) for order, objects in everything]
     # Refuse anything but the 10x layout before a single file is read.
     check_layout(listings, PROCESSED_LAYOUT)
-    routing = route(listings)
+    # A GroupID in the main and a re-sequencing order must have one processed/.
+    check_single_processed(folders)
+    routing = route(listings, main_group_ids=folders[0].group_ids)
     _print_routing(routing)
     _print_warnings(routing.warnings)
 

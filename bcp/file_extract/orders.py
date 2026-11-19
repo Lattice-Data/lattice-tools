@@ -26,7 +26,7 @@ Pure by design: nothing in this module talks to S3.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Sequence
+from typing import Callable, Iterable, Sequence
 
 from .models import ListedObject
 from .s3_utils import parse_s3_uri, s3_uri_for
@@ -302,17 +302,89 @@ class Routing:
     empty_orders: list[OrderPrefix] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class OrderFolders:
+    """The GroupID folders one order has, and which of them have processed/."""
+
+    order: OrderPrefix
+    group_ids: frozenset[str]
+    processed: frozenset[str]
+
+
+def scan_order_folders(
+    order: OrderPrefix, objects: Sequence[ListedObject]
+) -> OrderFolders:
+    """GroupIDs from every key in an order, whatever the folder holds.
+
+    A GroupID with only ``raw/`` still counts, so a GroupID the main order
+    holds only as raw data is still the main order's.
+    """
+    group_ids: set[str] = set()
+    processed: set[str] = set()
+    for obj in objects:
+        parts = obj.key[len(order.prefix) :].split("/")
+        if len(parts) < 2 or not parts[0] or parts[0] in STRUCTURAL_FOLDERS:
+            continue
+        group_ids.add(parts[0])
+        if len(parts) >= 3 and parts[1] == "processed":
+            processed.add(parts[0])
+    return OrderFolders(order, frozenset(group_ids), frozenset(processed))
+
+
+def check_single_processed(folders: Sequence[OrderFolders]) -> None:
+    """Refuse a shared GroupID with more than one processed/ folder.
+
+    ``folders`` holds the main order first. For each GroupID folder the main
+    order shares with at least one re-sequencing order, at most one of those
+    orders may have ``{GroupID}/processed/``; with two, which one is the
+    deliverable cannot be chosen here, so the run stops before any file is
+    read. Raises one OrderError naming every such GroupID and its folders.
+    """
+    if not folders or not folders[0].order.is_primary:
+        raise ValueError("check_single_processed() needs the main order first")
+    main = folders[0]
+    duplicated: dict[str, list[OrderPrefix]] = {}
+    for gid in sorted(main.group_ids):
+        spanning = [f for f in folders if gid in f.group_ids]
+        if len(spanning) < 2:
+            continue
+        with_processed = [f.order for f in spanning if gid in f.processed]
+        if len(with_processed) > 1:
+            duplicated[gid] = with_processed
+    if not duplicated:
+        return
+
+    lines = [
+        f"{len(duplicated)} GroupID(s) in both the main order and a "
+        "re-sequencing order have more than one processed/ folder; each such "
+        "GroupID must have exactly one:"
+    ]
+    for gid, orders in duplicated.items():
+        lines.append(f"  GroupID {gid}:")
+        lines.extend(
+            f"    {s3_uri_for(o.bucket, f'{o.prefix}{gid}/processed/')}"
+            f" ({o.role} order {o.cro_order})"
+            for o in orders
+        )
+    lines.append("Keep one processed/ folder per GroupID, then re-run.")
+    raise OrderError("\n".join(lines))
+
+
 def _normalized(group_id: str) -> str:
     return group_id.lower().replace("-", "_")
 
 
 def route(
     listings: Sequence[tuple[OrderPrefix, Sequence[ListedObject]]],
+    *,
+    main_group_ids: Iterable[str] = (),
 ) -> Routing:
     """Route every listed file into the main output set or its own order's.
 
     ``listings`` holds the main order first, then each re-sequencing order.
-    The main order's GroupIDs come from the files it matched. An output set is
+    The main order's GroupIDs come from the files it matched, plus any in
+    ``main_group_ids`` (h5 passes every GroupID folder, so one holding only
+    ``raw/`` still counts). An output set is
     only made for a re-sequencing order that brought new GroupIDs.
     """
     if not listings or not listings[0][0].is_primary:
@@ -324,7 +396,7 @@ def route(
         main_set.files.append(
             RoutedFile(main_order, obj, group_id_for(obj.key, main_order.prefix))
         )
-    main_groups = {routed.group_id for routed in main_set.files}
+    main_groups = {routed.group_id for routed in main_set.files} | set(main_group_ids)
     main_report.group_ids = sorted(main_groups)
     main_by_normalized = {_normalized(gid): gid for gid in main_groups}
 

@@ -125,6 +125,14 @@ def list_h5_targets(
     )
 
 
+def select_h5_targets(
+    objects: Sequence[ListedObject],
+    target_filename: str = DEFAULT_H5_TARGET_FILENAME,
+) -> list[ListedObject]:
+    """The h5 matrices named ``target_filename`` among already-listed objects."""
+    return [o for o in objects if _matches_target_filename(o.key, target_filename)]
+
+
 def map_feature_counts(
     raw_counts: dict[str, int],
 ) -> tuple[list[dict[str, int | str]], dict[str, int]]:

@@ -249,8 +249,8 @@ DB2's RawMatrixFile and ProcessedMatrixFile take an `md5sum`, and raise a `missi
 An order is sometimes sequenced again under a new CRO order. `fastq`, `cram` and `h5` take those re-sequencing orders with `--resequencing-orders`, beside the main order, and route every re-sequenced file by its **GroupID**. `scale_h5ad` does not take the flag.
 
 ```bash
-python -m file_extract fastq s3://czi-novogene/smith-proj/ORDER_A \
-  --resequencing-orders s3://czi-novogene/smith-proj/ORDER_B,s3://czi-novogene/smith-proj/ORDER_C \
+python -m file_extract fastq s3://czi-novogene/labalpha/ORDER_A \
+  --resequencing-orders s3://czi-novogene/labalpha/ORDER_B,s3://czi-novogene/labalpha/ORDER_C \
   --lab example-lab --cro-order ORDER_A --is-pilot-order false \
   --sequencing-platform "Ultima Genomics UG 100"
 ```
@@ -270,6 +270,22 @@ So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` a
 | `ORDER_B_fastq_info.tsv`, `ORDER_B_SequenceFile.tsv`, `ORDER_B_SequenceFileSet.tsv` | `ORDER_B`'s `GRP_003` files only |
 
 `ORDER_C` gets no output set of its own because it brought no new GroupIDs. `h5` works the same way, with one `<order>_h5_info.tsv` per output set.
+
+### h5: GroupIDs come from folders, one processed/ each
+
+For `h5`, an order's GroupIDs are every folder directly below it, whatever it holds. A main-order GroupID with only `raw/` (no `processed/`) is still the main order's, so the h5 a re-sequencing order made for it is written to the main order's `<order>_h5_info.tsv`.
+
+A GroupID in both the main order and a re-sequencing order must have exactly one `processed/` folder across those orders. If more than one has `{GroupID}/processed/` (whether or not it holds `--target-filename`), the run stops with exit 1 before any per-file request, writes no output, and prints each such GroupID with its `processed/` folders:
+
+```
+error: 1 GroupID(s) in both the main order and a re-sequencing order have more than one processed/ folder; each such GroupID must have exactly one:
+  GroupID GRP_001:
+    s3://czi-novogene/labalpha/ORDER_A/GRP_001/processed/ (main order ORDER_A)
+    s3://czi-novogene/labalpha/ORDER_B/GRP_001/processed/ (re-sequencing order ORDER_B)
+Keep one processed/ folder per GroupID, then re-run.
+```
+
+GroupIDs new to the main order are not checked. To find folders, `h5` lists every key in each order, not only the h5s.
 
 ### Rows and columns
 
