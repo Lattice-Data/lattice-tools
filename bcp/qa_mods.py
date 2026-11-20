@@ -14,7 +14,6 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 import pandas as pd
-from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
@@ -561,16 +560,17 @@ def parse_met_summ(f):
 def parse_web_summ(f):
     report = {"extra": [], "alerts": []}
     data = None
+    # Read the embedded JSON straight from the text. Parsing the ~6.5 MB page
+    # with BeautifulSoup left ~12 MB behind per call that was never freed; on a
+    # 384-library order that exhausted a JupyterHub pod partway through the
+    # Cell Ranger cell. The JSON is the same either way.
     with open(f) as html_doc:
-        soup = BeautifulSoup(html_doc, "html.parser")
-    for x in soup.find_all("script"):
-        if not x.string:
-            continue
-        match = re.search("const data = ", x.string)
-        if match:
-            end = match.end()
-            data = json.loads(x.string[end:])
-            break
+        text = html_doc.read()
+    marker = "const data = "
+    start = text.find(marker)
+    if start != -1:
+        data, _ = json.JSONDecoder().raw_decode(text, start + len(marker))
+    del text
 
     if data is None:
         raise ValueError(
@@ -648,6 +648,13 @@ def parse_web_summ(f):
 
     if "summary" in data:
         report["gex_alerts"] = data["summary"]["alarms"]["alarms"]
+
+    # Some web summaries give the bare version ("10.1.0", seen on 10.1.0
+    # `count` runs) where others give "cellranger-10.1.0". QA compares against
+    # the prefixed form, so normalize here.
+    software = report.get("software")
+    if software and software[0].isdigit():
+        report["software"] = "cellranger-" + software
 
     return report
 
