@@ -406,19 +406,19 @@ CRAM_MODE = _SequenceMode(
 
 
 def _group_counts(counts: dict[str, int]) -> str:
-    return ", ".join(f"{gid} ({n} file(s))" for gid, n in sorted(counts.items()))
+    """A count summary: how many GroupIDs and files, never the GroupID names."""
+    return f"{len(counts)} GroupID(s), {sum(counts.values())} file(s)"
 
 
 def _print_routing(routing: Routing) -> None:
-    """Say, per order, what was found and where its files went."""
+    """Say, per order, how many files were found and where they went."""
     main = routing.reports[0].order
     print("\nOrders:")
     for report in routing.reports:
         order = report.order
         print(f"  {order.cro_order} ({order.role}) {order.uri}")
         if order.is_primary:
-            gids = ", ".join(report.group_ids) or "(none)"
-            print(f"    {report.matched} file(s); GroupIDs: {gids}")
+            print(f"    {report.matched} file(s); {len(report.group_ids)} GroupID(s)")
             continue
         print(f"    {report.matched} file(s)")
         if report.added_to_main:

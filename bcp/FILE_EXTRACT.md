@@ -265,7 +265,7 @@ A file's GroupID is the first folder below its order: `ORDER_B/GRP_001/raw/…` 
 - **GroupID the main order also has:** the file is **added** to the main order's outputs, next to the main order's own files. Nothing from the main order is replaced or removed.
 - **GroupID new to the main order:** depends on `--resequencing-contains-new`:
   - **`true`:** the file goes into a separate set of outputs named after the re-sequencing order it came from.
-  - **`false`** (the default): the new GroupIDs are re-sequencing for a separate order, so their files are left out of every output and never fetched. The run lists them per order as `New GroupIDs, NOT written` and prints how many files were left out.
+  - **`false`** (the default): the new GroupIDs are re-sequencing for a separate order, so their files are left out of every output and never fetched. The run counts them per order under `New GroupIDs, NOT written` and prints how many files were left out.
 
 So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` and `GRP_003`, and `ORDER_C` holding only `GRP_002`:
 
@@ -310,6 +310,10 @@ GroupIDs new to the main order are not checked. To find folders, `h5` lists ever
 - **`--resequencing-contains-new`** takes `true` or `false`, defaults to `false`, and is refused without `--resequencing-orders`.
 
 Problems with the paths themselves exit 2 before any S3 call.
+
+### What the run prints
+
+For each order, the run prints how many files it matched and where they went, as counts only (`1 GroupID(s), 2 file(s)`). GroupID names are not listed. The main order shows its file and GroupID counts. Each re-sequencing order shows its file count, then how many GroupIDs and files were added to the main order, and how many were written to its own outputs or left out.
 
 ### Warnings
 

@@ -190,9 +190,11 @@ def test_mixed_orders_split_and_two_orders_make_two_extra_sets(
         '["example-lab:RUN3-GRP_004"]'
     ]
     out = capsys.readouterr().out
-    assert "Added to ORDER_A: GRP_001 (2 file(s))" in out
-    assert "New GroupIDs, written to ORDER_C outputs: GRP_004 (2 file(s))" in out
+    assert "Added to ORDER_A: 1 GroupID(s), 2 file(s)" in out
+    assert "New GroupIDs, written to ORDER_C outputs: 1 GroupID(s), 2 file(s)" in out
     assert "Output set ORDER_A (main order, plus 4 re-sequenced file(s))" in out
+    assert "4 file(s); 2 GroupID(s)" in out
+    assert "GRP_00" not in out
 
 
 def test_info_tsv_has_source_order_only_with_the_flag(tmp_path: Path) -> None:
@@ -661,7 +663,8 @@ def test_contains_new_false_writes_no_output_for_new_groups(
     assert not any("GRP_003" in key for key in calls[0])
     out = capsys.readouterr().out
     assert "New GroupIDs, NOT written" in out
-    assert "GRP_003 (2 file(s))" in out
+    assert "1 GroupID(s), 2 file(s)" in out
+    assert "GRP_003" not in out
     assert "Left out 2 file(s)" in out
 
 
