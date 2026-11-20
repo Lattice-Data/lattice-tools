@@ -148,7 +148,7 @@ Point at an order or library prefix, such as `s3://example-bucket/proj/AN0000000
 
 `sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the order or library directory. `library` remains the folder immediately before `processed/`.
 
-`derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning.
+`derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning. With `--resequencing-orders`, an h5 in the main order's TSV lists the FASTQs from `{GroupID}/raw/` in every order that has its GroupID; see **Re-sequencing orders**.
 
 ```bash
 python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab
@@ -279,6 +279,8 @@ So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` a
 ### h5: GroupIDs come from folders, one processed/ each
 
 For `h5`, an order's GroupIDs are every folder directly below it, whatever it holds. A main-order GroupID with only `raw/` (no `processed/`) is still the main order's, so the h5 a re-sequencing order made for it is written to the main order's `<order>_h5_info.tsv`.
+
+**`derived_from` spans every order.** A re-processed matrix for a shared GroupID is built from both runs' reads. So for each h5 in the main order's TSV, `derived_from` lists the selected FASTQs from `{GroupID}/raw/` in every order that has that GroupID folder, main order first, sorted and without duplicates. That holds whichever order the h5 sits in. With `ORDER_A/GRP_001/raw/RUN1_*` and `ORDER_B/GRP_001/{raw/RUN2_*, processed/…}`, the `GRP_001` row lists both the `RUN1` and `RUN2` FASTQs. h5s in a re-sequencing order's own TSV (new GroupIDs) still use only their own `raw/`. If none of the `raw/` folders has a selected FASTQ, the row gets `[]` and one warning naming them.
 
 A GroupID in both the main order and a re-sequencing order must have exactly one `processed/` folder across those orders. If more than one has `{GroupID}/processed/` (whether or not it holds `--target-filename`), the run stops with exit 1 before any per-file request, writes no output, and prints each such GroupID with its `processed/` folders:
 

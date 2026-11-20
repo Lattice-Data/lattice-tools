@@ -4,7 +4,7 @@ import csv
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from tqdm import tqdm
 
@@ -293,28 +293,56 @@ def empty_raw_fastq_warning(raw_prefix: str) -> str:
     )
 
 
+def empty_raw_fastqs_warning(raw_prefixes: Sequence[str]) -> str:
+    joined = ", ".join(repr(p) for p in raw_prefixes)
+    return (
+        f"derived_from is empty for h5 files paired with {joined}; "
+        "no selected FASTQs in those directories"
+    )
+
+
 def derived_from_cells(
     s3_client: Any,
     bucket: str,
     keys: Sequence[str],
     namespace: str,
     summary: RunSummary,
+    raw_prefixes_by_key: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, str]:
-    """JSON alias lists for each h5 key, listing each sibling raw/ once."""
+    """JSON alias lists for each h5 key, listing each sibling raw/ once.
+
+    ``raw_prefixes_by_key`` replaces the sibling raw/ for the keys it names
+    with several raw/ folders, whose FASTQs are combined: a re-sequencing run
+    passes every order's ``{GroupID}/raw/`` for a GroupID shared with the main
+    order, since a re-processed matrix is built from both runs' reads.
+    """
     aliases_by_raw: dict[str, list[str]] = {}
     warned_raw: set[str] = set()
+    warned_sets: set[tuple[str, ...]] = set()
     cells: dict[str, str] = {}
+
+    def aliases_for(raw_prefix: str) -> list[str]:
+        if raw_prefix not in aliases_by_raw:
+            aliases_by_raw[raw_prefix] = fastq_aliases_for_raw_prefix(
+                s3_client, bucket, raw_prefix, namespace
+            )
+        return aliases_by_raw[raw_prefix]
+
     for key in keys:
+        prefixes = (raw_prefixes_by_key or {}).get(key)
+        if prefixes:
+            combined = sorted({a for p in prefixes for a in aliases_for(p)})
+            if not combined and tuple(prefixes) not in warned_sets:
+                warned_sets.add(tuple(prefixes))
+                summary.warnings.append(empty_raw_fastqs_warning(prefixes))
+            cells[key] = json.dumps(combined)
+            continue
         raw_prefix = raw_prefix_for_h5(key)
         if raw_prefix is None:
             summary.warnings.append(missing_processed_warning(key))
             cells[key] = json.dumps([])
             continue
-        if raw_prefix not in aliases_by_raw:
-            aliases_by_raw[raw_prefix] = fastq_aliases_for_raw_prefix(
-                s3_client, bucket, raw_prefix, namespace
-            )
-        aliases = aliases_by_raw[raw_prefix]
+        aliases = aliases_for(raw_prefix)
         if not aliases and raw_prefix not in warned_raw:
             warned_raw.add(raw_prefix)
             summary.warnings.append(empty_raw_fastq_warning(raw_prefix))
@@ -371,12 +399,15 @@ def extract_h5(
     show_progress: bool = True,
     targets: Sequence[ListedObject] | None = None,
     source_order_by_key: dict[str, str] | None = None,
+    raw_prefixes_by_key: Mapping[str, Sequence[str]] | None = None,
 ) -> RunSummary:
     """List h5 matrices, enrich metadata, write TSV.
 
     Pass ``targets`` to write files a caller already listed and routed -- a
     re-sequencing run does, once per output set. ``source_order_by_key`` adds
     the ``source_order`` column, naming the order each h5 came from.
+    ``raw_prefixes_by_key`` lists, per h5, the raw/ folders whose FASTQs make
+    up its ``derived_from``; see :func:`derived_from_cells`.
     """
     if targets is None:
         targets = list_h5_targets(s3_client, bucket, prefix, target_filename)
@@ -391,6 +422,7 @@ def extract_h5(
         [obj.key for obj in targets],
         namespace,
         summary,
+        raw_prefixes_by_key=raw_prefixes_by_key,
     )
     columns = h5_columns(
         do_introspect=do_introspect,

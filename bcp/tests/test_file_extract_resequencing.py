@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -548,9 +549,13 @@ def test_h5_raw_only_main_group_takes_the_reseq_h5(tmp_path: Path) -> None:
     resequenced = main_rows[f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_001')}"]
     assert original["source_order"] == "ORDER_A"
     assert resequenced["source_order"] == "ORDER_B"
-    # derived_from stays inside each file's own order.
+    # GRP_002 is only in ORDER_A, so its derived_from is ORDER_A's raw/ alone.
     assert original["derived_from"] == '["example-lab:RUN1-G2_R1_001.fastq.gz"]'
-    assert resequenced["derived_from"] == '["example-lab:RUN2_R1_001.fastq.gz"]'
+    # GRP_001 is in both orders: the re-processed h5 lists both runs' FASTQs.
+    assert json.loads(resequenced["derived_from"]) == [
+        "example-lab:RUN1_R1_001.fastq.gz",
+        "example-lab:RUN2_R1_001.fastq.gz",
+    ]
 
     new_rows = _h5_rows(tmp_path / "ORDER_B_h5_info.tsv")
     assert list(new_rows) == [f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_003')}"]
@@ -582,6 +587,27 @@ def test_h5_shared_group_with_two_processed_folders_errors(
     assert "GRP_003" not in err
     # Stopped before any output was written.
     assert list(tmp_path.iterdir()) == []
+
+
+def test_h5_main_order_h5_lists_reseq_raw_fastqs_too(tmp_path: Path) -> None:
+    # The h5 sits in the main order; ORDER_B only added reads for GRP_001.
+    keys = [
+        _h5("ORDER_A", "GRP_001"),
+        f"{PROJ}ORDER_A/GRP_001/raw/RUN1_R1_001.fastq.gz",
+        f"{PROJ}ORDER_A/GRP_001/raw/RUN1_R2_001.fastq.gz",
+        f"{PROJ}ORDER_B/GRP_001/raw/RUN2_R1_001.fastq.gz",
+        f"{PROJ}ORDER_B/GRP_001/raw/RUN2_R2_001.fastq.gz",
+    ]
+    assert _run_h5(keys, _reseq("ORDER_B"), tmp_path) == 0
+    rows = _h5_rows(tmp_path / "ORDER_A_h5_info.tsv")
+    row = rows[f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_001')}"]
+    assert row["source_order"] == "ORDER_A"
+    assert json.loads(row["derived_from"]) == [
+        "example-lab:RUN1_R1_001.fastq.gz",
+        "example-lab:RUN1_R2_001.fastq.gz",
+        "example-lab:RUN2_R1_001.fastq.gz",
+        "example-lab:RUN2_R2_001.fastq.gz",
+    ]
 
 
 def test_h5_single_order_has_no_source_order_column(tmp_path: Path) -> None:
@@ -713,3 +739,32 @@ def test_contains_new_usage_errors_exit_2(
     assert info.value.code == 2
     assert message in capsys.readouterr().err
     boto.assert_not_called()
+
+
+def test_derived_from_cells_combines_raw_prefixes_and_warns_once_if_empty() -> None:
+    from file_extract.h5 import derived_from_cells
+    from file_extract.models import RunSummary
+
+    keys = [
+        f"{PROJ}ORDER_A/GRP_001/raw/RUN1_R1_001.fastq.gz",
+        f"{PROJ}ORDER_B/GRP_001/raw/RUN1_R1_001.fastq.gz",
+    ]
+    h5_shared = _h5("ORDER_B", "GRP_001")
+    h5_empty = _h5("ORDER_B", "GRP_009")
+    summary = RunSummary(total=2)
+    cells = derived_from_cells(
+        _client(keys),
+        BUCKET,
+        [h5_shared, h5_empty],
+        "example-lab",
+        summary,
+        raw_prefixes_by_key={
+            h5_shared: [f"{PROJ}ORDER_A/GRP_001/raw/", f"{PROJ}ORDER_B/GRP_001/raw/"],
+            h5_empty: [f"{PROJ}ORDER_A/GRP_009/raw/", f"{PROJ}ORDER_B/GRP_009/raw/"],
+        },
+    )
+    # The same filename in both orders is one alias.
+    assert json.loads(cells[h5_shared]) == ["example-lab:RUN1_R1_001.fastq.gz"]
+    assert json.loads(cells[h5_empty]) == []
+    assert len(summary.warnings) == 1
+    assert "GRP_009/raw/" in summary.warnings[0]

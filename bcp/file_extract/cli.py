@@ -39,7 +39,9 @@ from .orders import (
     PROCESSED_LAYOUT,
     RAW_LAYOUT,
     OrderError,
+    OrderFolders,
     OrderPrefix,
+    OutputSet,
     Routing,
     check_layout,
     check_single_processed,
@@ -661,6 +663,24 @@ def _print_left_out(routing: Routing) -> None:
         )
 
 
+def _shared_raw_prefixes(
+    output_set: OutputSet, folders: Sequence[OrderFolders]
+) -> dict[str, list[str]]:
+    """Per h5 in the main set, the {GroupID}/raw/ of every order with that GroupID.
+
+    A GroupID shared with a re-sequencing order is re-processed from both runs'
+    reads, so its ``derived_from`` lists the FASTQs of each order, main first.
+    """
+    return {
+        r.obj.key: [
+            f"{f.order.prefix}{r.group_id}/raw/"
+            for f in folders
+            if r.group_id in f.group_ids
+        ]
+        for r in output_set.files
+    }
+
+
 def _run_h5_orders(args: argparse.Namespace) -> int:
     """h5 over a main order plus --resequencing-orders."""
     orders: list[OrderPrefix] = args.orders
@@ -756,6 +776,9 @@ def _run_h5_orders(args: argparse.Namespace) -> int:
             source_order_by_key={
                 r.obj.key: r.order.cro_order for r in output_set.files
             },
+            raw_prefixes_by_key=(
+                _shared_raw_prefixes(output_set, folders) if owner.is_primary else None
+            ),
         )
         print(f"\n{heading}")
         print(f"  Total: {summary.total} | checksum OK: {summary.crc_ok}", end="")
@@ -945,8 +968,9 @@ def _add_resequencing_argument(parser: argparse.ArgumentParser, layout: str) -> 
             "Re-sequencing order folders in the same bucket, space- and/or "
             "comma-separated. A file whose GroupID (first folder below its "
             "order) the main order also has is added to the main order's "
-            "outputs; new GroupIDs get outputs named after their order. 10x "
-            f"layout only: {{order}}/{layout}"
+            "outputs. Files with GroupIDs new to the main order are left out "
+            "unless --resequencing-contains-new is true. 10x layout only: "
+            f"{{order}}/{layout}"
         ),
     )
     parser.add_argument(
