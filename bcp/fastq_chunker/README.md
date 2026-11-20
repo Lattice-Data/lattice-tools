@@ -77,8 +77,26 @@ its partial chunks removed and the run continues; the exit code is non-zero and
 the `--only ...` command to rerun is printed. If `split` produces a different
 number of chunks than the plan names, which is what a wrong portal `read_count`
 causes, the file is treated the same way. `--copy-singletons` server-side
-copies files that need no splitting into `--dst` as well (no sidecar, since
-nothing reads their bytes). Run under `tmux` or `nohup`, and export
+copies files that need no splitting into `--dst` as well, `--copy-workers`
+files (default 4) at a time, and preflight then checks their sources too. On
+S3 each file of 64 MiB or more is copied as 128 MiB parts, `--copy-parts`
+(default 32) of them at once. One copy request moves only a few MB/s, so the
+parts are what make it fast: in the TOOLS-382 pilot a 13.4 GB file took 48
+minutes one part at a time and 2 minutes with 32 at once. Each copy
+is checked after it lands: its size must match the plan, and when DB2
+recorded a CRC64NVME for it (`crc64nvme_base64`), S3 must hold a full-object
+CRC64NVME equal to it. A copy S3 has no such checksum for (one uploaded some
+other way, or with a COMPOSITE checksum) cannot be compared, so it counts as
+wrong: a rerun copies it again and the gate fails it. Only without a DB2 CRC,
+or off S3, is the size alone compared. The manifest's `checked` column says
+which was compared (`size` or `size+crc64nvme`). A failed copy is reported and
+the other copies go on; what is at its target is removed only once a check
+found it wrong, never because a request failed, so a transient error leaves a
+good copy in place. A rerun copies only what is missing or wrong; the hint a
+failed run prints is the flags to add, `--copy-singletons` included. `--only`
+naming a copied file without `--copy-singletons` is refused. A copy
+gets no sidecar, since nothing reads its bytes. A plan with nothing to split
+only copies, and needs neither `pigz` nor `split`. Run under `tmux` or `nohup`, and export
 `AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs. A pipeline that is
 killed outright (not one that fails) can leave an incomplete multipart upload
 behind, which S3 bills for and does not list; give the destination bucket a
@@ -97,6 +115,250 @@ read IDs agree across mates and do not repeat across chunk boundaries. Any
 `batch` is organisational only: it packs whole sets, in plan order, into
 submission batches under `--batch-limit-gb` (default 5000), using actual chunk
 sizes from the run manifest when given.
+
+## From db2_flattener's SRA sheets
+
+db2_flattener writes a submittable SRA file sheet per batch
+(`sra_file_set{N}.csv`) whose `filename…` cells hold DB2's predicted names
+(`sra_file_names` on SequenceFile: a file's own name, or its chunk names once
+its set reaches the limit), plus `sra_sequence_fileset_set{N}.csv`
+(`library_ID,sequence_file_set_uuid`, one row per SequenceFileSet). The
+destination then holds exactly what the sheet names: chunks for a file that is
+split (never the original), the original for a file that is not.
+
+```
+# where DB2 credentials are (DB2_PROD_KEY, DB2_PROD_SECRET, DB2_PROD_SERVER)
+python -m fastq_chunker resolve --sra-sheet sra_file_set1.csv \
+    --set-sheet sra_sequence_fileset_set1.csv --out-dir set1/
+python -m fastq_chunker plan --file-sets set1/sets.json --files set1/files.json \
+    --dst s3://dst-bucket/batch1/ --out set1/plan.json
+
+# where S3 access is (the pod); plan.json carries every s3_uri
+python -m fastq_chunker run --plan plan.json --copy-singletons --decompressor rapidgzip
+python -m fastq_chunker verify --plan plan.json --level full
+python -m fastq_chunker check-submission --plan plan.json \
+    --sra-sheet sra_file_set1.csv --verify-report verify_report.tsv
+```
+
+`resolve` is read-only. It fetches the listed sets by uuid, and the files in
+their read slots, and writes the `sets.json`/`files.json` that `plan` already
+reads. It refuses, listing every problem at once, when:
+
+- a uuid does not resolve, or a set or file is deleted;
+- a set is listed twice, or a file belongs to two listed sets;
+- DB2 gives a file no `sra_file_names` (which it does when it would refuse the
+  set);
+- a library's `sra_file_names`, across all its sets, differ from that row's
+  `filename…` cells (order within a row is not compared);
+- the batch is over `--batch-limit-gb` (default 5000).
+
+Credentials follow the repo's `--mode` convention (default `db2_prod`).
+
+`plan` enforces the name contract whenever the file objects carry
+`sra_file_names`. Its own names, the chunk names or an unsplit file's
+name, must equal DB2's, in order, or nothing is written. So the chunker
+produces exactly the predicted names or refuses. A different `--target-gb` is
+accepted only where it yields the same names.
+
+`check-submission` is the gate before upload. It is read-only and reads the
+destination itself, not the manifest. It requires that:
+
+- the sheet's names are exactly the plan's;
+- the destination holds exactly those objects, plus `.md5` sidecars of chunks
+  and nothing else (no pre-split original, no probe, no sub-prefix). The one
+  exception is the empty marker the S3 console's "Create folder" leaves at the
+  prefix itself;
+- every copy passes the copy check above;
+- every chunk is below the limit, has its sidecar, and passed
+  `verify --level full` (read count and md5) with no FAIL for it, for its
+  file's part (`boundary_distinct`), or for its part across mates
+  (`first_id_aligned`, `last_id_aligned`; verify writes these by part label,
+  `part001`, not by chunk name);
+- the verify report, when given, has no FAIL anywhere and ends in an overall
+  PASS, so a row the mapping misses, or a report cut short, still fails;
+- every chunk is still the object verify read. Verify records each chunk's
+  size and ETag from one listing taken before it reads anything, and a chunk
+  replaced since then fails `same_as_verified`;
+- the batch in actual bytes is within the limit.
+
+It writes `submission_report.tsv` and exits non-zero on any FAIL.
+
+## Copying a set into the SRA bucket, step by step
+
+This puts one set's files into its own folder in the SRA bucket, so that the
+folder holds exactly what the set's SRA sheet names. It does not submit
+anything to SRA. Every step runs in a terminal on a Biohub JupyterHub pod. The
+pod's role is what may read the vendor buckets and write the SRA bucket, so no
+AWS login is needed. Values written `<like-this>` (the bucket, and where DB2
+credentials come from) are not in this public repo; get them from the person
+who handed you this.
+
+You need:
+
+- **The flattener's two CSVs for the set:** `sra_file_set<N>.csv` and
+  `sra_sequence_fileset_set<N>.csv`.
+- **DB2 credentials:** a key and secret for production DB2. They are only
+  read; nothing is written to DB2.
+- **lattice-tools on the pod**, at `~/lattice-tools`, up to date:
+
+  ```bash
+  cd ~/lattice-tools && git checkout main && git pull --ff-only && git log --oneline -1
+  ```
+
+Keep each set's working files in `~/fastq_batches/`, never inside
+`~/lattice-tools`: the sheets and plans carry collaborators' file and library
+names, and the repo is public.
+Commands below are run one at a time. If you open a new terminal, set the
+variables from steps 1 and 3 again (`SET`, `B`, `NAME`, `SRA`) before going on.
+
+**1. Name the set's folder.** Upload the two CSVs with the JupyterHub file
+browser into `~/fastq_batches/incoming/`, then set `SET` to the sheets'
+`set<N>` and make the folder. Its name is the date, the set, and the first
+8 characters of the sheet's sha256, so two versions of a sheet never share a
+folder:
+
+```bash
+mkdir -p ~/fastq_batches/incoming
+```
+```bash
+SET=set1
+NAME="$(date -u +%Y%m%d)-$SET-$(sha256sum ~/fastq_batches/incoming/sra_file_$SET.csv | cut -c1-8)"; B=~/fastq_batches/$NAME; mkdir -p $B && mv ~/fastq_batches/incoming/sra_file_$SET.csv ~/fastq_batches/incoming/sra_sequence_fileset_$SET.csv $B/ && echo $NAME
+```
+
+Write the printed name down. Run this step once per set: on a later day it
+would make a new name, and a rerun must use the old folder.
+
+**2. Give the shell your DB2 credentials.** Typed at the prompts, they stay
+out of the shell history and are gone when the terminal closes. The server is
+`<db2-server-url>`:
+
+```bash
+read -rp "DB2 server: " DB2_PROD_SERVER; read -rp "DB2 key: " DB2_PROD_KEY; read -rsp "DB2 secret: " DB2_PROD_SECRET; echo; export DB2_PROD_SERVER DB2_PROD_KEY DB2_PROD_SECRET
+```
+
+**3. Resolve the set against DB2 and plan it.** Set `SRA` to the bucket, then
+run `resolve`:
+
+```bash
+SRA=s3://<sra-bucket>
+```
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker resolve --sra-sheet $B/sra_file_$SET.csv --set-sheet $B/sra_sequence_fileset_$SET.csv --out-dir $B
+```
+
+It prints `… libraries, … sets, … files, … GB; the SRA sheet matches DB2's
+sra_file_names`. If it refuses instead, it lists every problem and writes
+nothing. Stop there and send the output to whoever made the sheets: the sheets
+and DB2 disagree, and copying would not fix that. Then plan:
+
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker plan --file-sets $B/sets.json --files $B/files.json --dst $SRA/$NAME/ --out $B/plan.json > $B/plan_summary.txt && head -1 $B/plan_summary.txt
+```
+
+It prints `G groups, S to split; …`. With `0 to split`, every file is copied
+as it is. With more, the files of 100 GB or more are split into chunks, and
+step 6 is needed.
+
+**4. Check where it will write.** The first line must be `$SRA/$NAME/`. On a
+first run the listing after it must be empty; if it shows files, stop, since
+something else is already in that folder. On a rerun of the same set it shows
+the files copied so far.
+
+```bash
+python -c "import json,sys; print(json.load(open(sys.argv[1]))['dst'])" $B/plan.json; aws s3 ls $SRA/$NAME/
+```
+
+**5. Start the copy.** It runs in the background, so closing the browser does
+not stop it. Copies have run at 13 to 27 GB a minute (a 1.3 TB set took 100
+minutes); splitting a 500 GB file takes 2 to 3 hours.
+
+```bash
+cd ~/lattice-tools/bcp && { [ ! -e $B/run.log ] || mv $B/run.log $B/run.$(date -u +%Y%m%dT%H%M%S).log; } && AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive nohup sh -c "date; python -u -m fastq_chunker run --plan $B/plan.json --copy-singletons --log-dir $B/logs --manifest $B/run_manifest.tsv; echo exit \$?; date" > $B/run.log 2>&1 &
+```
+
+`run.log` is this attempt's log. On a rerun, the previous one is kept as
+`run.<time>.log`. Check on it whenever you like. This prints the files copied
+so far, any failures, and the last two lines of the log:
+
+```bash
+grep -c '^copied' $B/run.log; grep FAILED $B/run.log; tail -2 $B/run.log
+```
+
+It is finished when the last line of `run.log` is a date. The line before it
+says `exit 0` when every file was copied. Any other exit status means the run
+failed: a `FAILED` line names a file that failed, and a run that stopped
+before copying anything ends in `error: …` or a Python traceback instead.
+After a failure, or if the run stopped partway, start step 5 again exactly as
+written. Files already copied and checked are skipped, and only what is
+missing or wrong is redone. An `error: …` that a rerun repeats needs to be
+sent on.
+
+**6. Only if step 3 said anything to split: verify the chunks.** This
+decompresses every chunk and checks its read count, its md5, and that mates
+line up. It also runs in the background:
+
+```bash
+cd ~/lattice-tools/bcp && nohup sh -c "date; python -u -m fastq_chunker verify --plan $B/plan.json --level full --out $B/verify_report.tsv; echo exit \$?; date" > $B/verify.log 2>&1 &
+```
+
+Wait for it to finish before step 7: it is done when the last line of
+`verify.log` is a date. Check with:
+
+```bash
+tail -3 $B/verify.log
+```
+
+It passed when that shows `PASS: …`, then `exit 0`, then the date. On
+`FAIL: …`, the lines above it in `verify.log` name each chunk and check that
+failed. Stop and send `verify.log` on: rerunning step 5 does not redo a file
+whose chunks are all there.
+
+**7. Check the folder.** This is the gate. It reads the folder itself and
+changes nothing:
+
+```bash
+cd ~/lattice-tools/bcp && python -m fastq_chunker check-submission --plan $B/plan.json --sra-sheet $B/sra_file_$SET.csv --out $B/submission_report.tsv
+```
+
+If step 6 ran, add `--verify-report $B/verify_report.tsv`. The set is done
+when this prints `PASS: …, 0 failed`, with every copy checked by
+`size+crc64nvme`. A `FAIL` line names the file and the check. Most are fixed
+by running step 5 again, then step 6 if the set splits, then this step.
+Anything else, send it on.
+
+**8. Record the summary**: when the first attempt started, when the last one
+ended, files, GB, and how each copy was checked. Send it with step 7's output to whoever handed you the set:
+
+```bash
+grep -hv '^nohup' $(ls $B/run.*.log 2>/dev/null) $B/run.log | head -1; tail -1 $B/run.log; awk -F'\t' 'NR>1 {sub(/\r$/, ""); n++; gb+=$3/1e9; c[$7]++; s[$5]++} END {printf "%d files, %.1f GB; status:", n, gb; for (k in s) printf " %s=%d", k, s[k]; printf "; checked:"; for (k in c) printf " %s=%d", k, c[k]; print ""}' $B/run_manifest.tsv
+```
+
+Do not create folders inside a set's folder from the S3 console: the marker it
+leaves fails step 7. (One for the set's folder itself is ignored.) If a chunk
+is replaced after step 6, step 7 fails it as `same_as_verified`: run step 6
+again, then step 7.
+
+**Removing a set's folder**, when it was only a test or has to be redone from
+scratch. Deletion is permanent. Check the count and the names first; every
+line must start with `(dryrun) delete: $SRA/$NAME/`. If `SRA` or `NAME` is not
+set in this terminal, the shell refuses to run these instead:
+
+```bash
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive --dryrun | wc -l
+```
+```bash
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive --dryrun | head -3
+```
+
+Then delete it, and confirm the folder is gone. The listing should not show
+`$NAME/`:
+
+```bash
+aws s3 rm "${SRA:?}/${NAME:?}/" --recursive
+```
+```bash
+aws s3 ls $SRA/
+```
 
 ## Performance
 
@@ -142,7 +404,9 @@ first pilot), and quick and full verify passed on each.
 ## Outputs
 
 - `<stem>.partNNN.fastq.gz` and `<stem>.partNNN.fastq.gz.md5` under `--dst`
-- `plan.json`, `run_manifest.tsv`, `verify_report.tsv`, `batches.tsv`, `logs/<stem>.log`
+- copies of unsplit files under their own names, with `--copy-singletons`
+- `sets.json`, `files.json` (from `resolve`), `plan.json`, `run_manifest.tsv`,
+  `verify_report.tsv`, `submission_report.tsv`, `batches.tsv`, `logs/<stem>.log`
 
 ## Requirements
 

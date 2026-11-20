@@ -32,7 +32,19 @@ from .plan import FilePlan, GroupPlan, Plan
 
 BCP_DIR = Path(__file__).resolve().parents[1]
 PROBE_NAME = ".fastq_chunker_probe"
-MANIFEST_COLUMNS = ("filename", "chunk", "bytes", "md5", "status", "wall_seconds")
+MANIFEST_COLUMNS = (
+    "filename",
+    "chunk",
+    "bytes",
+    "md5",
+    "status",
+    "wall_seconds",
+    "checked",
+)
+# what a copied file's check compared: its size, and S3's full-object
+# CRC64NVME against DB2's crc64nvme_base64 when both exist
+CHECKED_SIZE = "size"
+CHECKED_CRC = "size+crc64nvme"
 
 
 class RunError(Exception):
@@ -58,6 +70,8 @@ class ChunkResult:
     md5: str | None
     status: str
     wall_seconds: float | None = None
+    checked: str = ""
+    detail: str = ""  # why a file failed; printed, not a manifest column
 
     def row(self) -> dict:
         return {
@@ -69,6 +83,7 @@ class ChunkResult:
             "wall_seconds": ""
             if self.wall_seconds is None
             else f"{self.wall_seconds:.1f}",
+            "checked": self.checked,
         }
 
 
@@ -81,6 +96,8 @@ class RunOptions:
     force: bool = False
     dry_run: bool = False
     copy_singletons: bool = False
+    copy_workers: int = 4
+    copy_parts: int = s3io.DEFAULT_COPY_PARTS
     log_dir: Path = Path("logs")
     manifest: Path = Path("run_manifest.tsv")
     decompressor: str = "pigz"
@@ -240,7 +257,10 @@ def preflight(
     fs, plan: Plan, opts: RunOptions, files: list[tuple[GroupPlan, FilePlan]]
 ) -> None:
     problems = []
-    for _, fp in files:
+    sources = [fp for _, fp in files]
+    if opts.copy_singletons:
+        sources += singleton_files(plan, opts)
+    for fp in sources:
         uri = fp.file.s3_uri
         if not fs.exists(uri):
             problems.append(f"missing: {uri}")
@@ -347,27 +367,129 @@ def write_manifest(path: Path, results: list[ChunkResult]) -> None:
             w.writerow(r.row())
 
 
-def copy_singletons(fs, plan: Plan, opts: RunOptions, out) -> None:
-    for g in plan.groups:
-        if g.action != "skip":
-            continue
-        for fp in g.files:
-            if opts.only and fp.file.filename not in opts.only:
-                continue
-            target = plan.dst + fp.file.filename
-            if (
-                fs.exists(target)
-                and fs.size(target) == fp.file.size_bytes
-                and not opts.force
-            ):
-                out.write(f"singleton present, skipping: {fp.file.filename}\n")
-                continue
-            out.write(f"copying singleton: {fp.file.filename}\n")
+def singleton_files(plan: Plan, opts: RunOptions) -> list[FilePlan]:
+    """Files that need no split, filtered by --only: copied as they are."""
+    return [
+        fp
+        for g in plan.groups
+        if g.action == "skip"
+        for fp in g.files
+        if not opts.only or fp.file.filename in opts.only
+    ]
+
+
+def check_copy(fs, target: str, fp: FilePlan, s3_client) -> tuple[str | None, str]:
+    """(problem or None, what was compared) for a copied file at ``target``.
+
+    The size must match the plan. When the destination is S3 and DB2 recorded
+    a CRC64NVME, S3 must hold a full-object CRC64NVME for the copy and the two
+    must be equal: a copy that cannot be compared is a problem, so ``run``
+    copies it again (its copies always carry one) and the gate fails it. Only
+    without a DB2 CRC, or off S3, is the size alone compared.
+    """
+    fs.invalidate_cache()
+    if not fs.exists(target):
+        return "not found", CHECKED_SIZE
+    size = fs.size(target)
+    if size != fp.file.size_bytes:
+        return f"size {size}, plan {fp.file.size_bytes}", CHECKED_SIZE
+    if s3_client is None or not fp.file.crc64nvme:
+        return None, CHECKED_SIZE
+    crc, kind = s3io.head_crc64nvme(s3_client, target)
+    if not crc or kind != "FULL_OBJECT":
+        held = f"a {kind} CRC64NVME" if crc else "no CRC64NVME"
+        return f"S3 holds {held}, not a full-object one to compare with DB2's", (
+            CHECKED_SIZE
+        )
+    if crc != fp.file.crc64nvme:
+        return f"CRC64NVME {crc}, DB2 {fp.file.crc64nvme}", CHECKED_CRC
+    return None, CHECKED_CRC
+
+
+def copy_one(fs, plan: Plan, fp: FilePlan, opts: RunOptions, s3_client) -> ChunkResult:
+    name = fp.file.filename
+    target = plan.dst + name
+    t0 = time.monotonic()
+
+    def result(status: str, checked: str, detail: str = "") -> ChunkResult:
+        return ChunkResult(
+            name,
+            name,
+            fp.file.size_bytes if status in ("ok", "skipped") else None,
+            None,
+            status,
+            time.monotonic() - t0,
+            checked,
+            detail,
+        )
+
+    # removed on failure only once a check has found the object at target
+    # wrong: an error while checking or copying says nothing about it, and an
+    # S3 copy that fails leaves the object that was there untouched
+    known_bad = False
+    try:
+        if not opts.force and fs.exists(target):
+            problem, checked = check_copy(fs, target, fp, s3_client)
+            if problem is None:
+                return result("skipped", checked)
+            known_bad = True
+        if s3_client is not None and fp.file.s3_uri.startswith("s3://"):
+            s3io.managed_copy(
+                s3_client, fp.file.s3_uri, target, fp.file.size_bytes, opts.copy_parts
+            )
+        else:
             fs.copy(fp.file.s3_uri, target)
+        # the wrong object is gone; until a check says otherwise, the new
+        # copy is not known to be bad, so an error checking it keeps it
+        known_bad = False
+        problem, checked = check_copy(fs, target, fp, s3_client)
+        known_bad = problem is not None
+    except Exception as e:  # one bad copy must not stop the others
+        problem, checked = f"{type(e).__name__}: {e}", ""
+    if problem is None:
+        return result("ok", checked)
+    if known_bad:
+        try:
+            fs.rm(target)
+        except Exception:
+            pass
+    return result("failed", checked, problem)
+
+
+def copy_singletons(fs, plan: Plan, opts: RunOptions, out) -> list[ChunkResult]:
+    """Server-side copy of every unsplit file into dst, several at once.
+
+    ``copy_workers`` files at a time, each as ``copy_parts`` parts in flight,
+    over one client whose pool holds a connection for every part. A file
+    already in dst that passes the check is skipped; one that fails it is
+    copied again. A failed copy is reported and the rest go on; the object at
+    its target is removed only when a check found it wrong.
+    """
+    todo = singleton_files(plan, opts)
+    s3_client = (
+        s3io.make_s3_client(opts.copy_workers * opts.copy_parts)
+        if s3io.is_s3(fs)
+        else None
+    )
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=opts.copy_workers) as pool:
+        futures = [pool.submit(copy_one, fs, plan, fp, opts, s3_client) for fp in todo]
+        for fut in concurrent.futures.as_completed(futures):
+            r = fut.result()
+            results.append(r)
+            if r.status == "failed":
+                out.write(f"FAILED copy {r.filename}: {r.detail}\n")
+            elif r.status == "skipped":
+                out.write(f"present, skipping: {r.filename} ({r.checked})\n")
+            else:
+                out.write(f"copied {r.filename} ({r.checked})\n")
+    return results
 
 
 def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None) -> int:
     out = out or sys.stdout
+    if opts.copy_singletons and min(opts.copy_workers, opts.copy_parts) < 1:
+        raise RunError("--copy-workers and --copy-parts must be at least 1")
     files = plan.split_files()
     if opts.only:
         known = {fp.file.filename for _, fp in files} | {
@@ -376,11 +498,20 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
         unknown = set(opts.only) - known
         if unknown:
             raise RunError(f"--only names not in plan: {', '.join(sorted(unknown))}")
+        unsplit = set(opts.only) - {fp.file.filename for _, fp in files}
+        if unsplit and not opts.copy_singletons:
+            # without the flag these would be dropped, and the run exit 0
+            raise RunError(
+                "--only names files that are copied, not split; add "
+                f"--copy-singletons: {', '.join(sorted(unsplit))}"
+            )
         files = [(g, fp) for g, fp in files if fp.file.filename in opts.only]
     # largest first, so the long pole starts before the small index reads
     files.sort(key=lambda gf: gf[1].file.size_bytes, reverse=True)
 
-    tools = tools or find_tools(decompressor=opts.decompressor)
+    if files:
+        # a plan with nothing to split only copies, and needs no pigz or split
+        tools = tools or find_tools(decompressor=opts.decompressor)
     if opts.dry_run:
         for g, fp in files:
             out.write(
@@ -397,14 +528,21 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
                 )
                 + "\n\n"
             )
+        if opts.copy_singletons:
+            for fp in singleton_files(plan, opts):
+                out.write(f"copy {fp.file.s3_uri} {plan.dst}{fp.file.filename}\n")
         return 0
 
     fs = s3io.make_fs(plan.dst)
     preflight(fs, plan, opts, files)
-    if opts.copy_singletons:
-        copy_singletons(fs, plan, opts, out)
 
     results: list[ChunkResult] = []
+    failed: list[str] = []
+    if opts.copy_singletons:
+        copies = copy_singletons(fs, plan, opts, out)
+        results.extend(copies)
+        failed.extend(r.filename for r in copies if r.status == "failed")
+
     todo = []
     for g, fp in files:
         if not opts.force and fp.chunks and chunks_complete(fs, plan, fp):
@@ -414,7 +552,6 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
         delete_chunks(fs, plan, fp)
         todo.append((g, fp))
 
-    failed: list[str] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=opts.workers) as pool:
         futures = {
             pool.submit(run_file, tools, plan, g, fp, opts, fs): fp for g, fp in todo
@@ -440,6 +577,7 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
     out.write(f"run manifest written to {opts.manifest}\n")
     if failed:
         only = " ".join(shlex.quote(f) for f in sorted(failed))
-        out.write(f"{len(failed)} file(s) failed; rerun with: --only {only}\n")
+        flag = "--copy-singletons " if opts.copy_singletons else ""
+        out.write(f"{len(failed)} file(s) failed; rerun with: {flag}--only {only}\n")
         return 1
     return 0

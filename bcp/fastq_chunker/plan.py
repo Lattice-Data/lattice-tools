@@ -33,6 +33,9 @@ class FastqFile:
     s3_uri: str
     size_bytes: int
     reads: int
+    # DB2's crc64nvme_base64, when it has one: lets a server-side copy be
+    # checked against S3's full-object checksum without reading the bytes
+    crc64nvme: str | None = None
 
 
 @dataclass(frozen=True)
