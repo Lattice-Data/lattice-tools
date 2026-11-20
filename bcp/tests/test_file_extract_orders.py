@@ -435,3 +435,46 @@ def test_route_main_group_ids_route_raw_only_groups_to_main() -> None:
         "proj/ORDER_A/GRP_002/processed/m.h5",
         "proj/ORDER_B/GRP_001/processed/m.h5",
     ]
+
+
+# --- include_new (--resequencing-contains-new) -------------------------------
+
+
+def test_route_include_new_false_leaves_new_groups_out() -> None:
+    a = _order("ORDER_A", primary=True)
+    b = _order("ORDER_B")
+    routing = route(
+        [
+            (a, _objects(a.prefix, "GRP_001/raw/a.fastq.gz")),
+            (
+                b,
+                _objects(b.prefix, "GRP_001/raw/b.fastq.gz", "GRP_003/raw/b3.fastq.gz"),
+            ),
+        ],
+        include_new=False,
+    )
+    assert [s.owner.cro_order for s in routing.output_sets] == ["ORDER_A"]
+    assert _keys(routing.output_sets[0]) == [
+        "smith-proj/ORDER_A/GRP_001/raw/a.fastq.gz",
+        "smith-proj/ORDER_B/GRP_001/raw/b.fastq.gz",
+    ]
+    assert [r.obj.key for r in routing.left_out] == [
+        "smith-proj/ORDER_B/GRP_003/raw/b3.fastq.gz"
+    ]
+    # The report still counts what was left out.
+    assert routing.reports[1].new_groups == {"GRP_003": 1}
+    assert routing.include_new is False
+
+
+def test_route_include_new_false_warnings_say_left_out() -> None:
+    a = _order("ORDER_A", primary=True)
+    b = _order("ORDER_B")
+    routing = route(
+        [
+            (a, _objects(a.prefix, "GRP-001/raw/a.fastq.gz")),
+            (b, _objects(b.prefix, "GRP_001/raw/b.fastq.gz")),
+        ],
+        include_new=False,
+    )
+    assert any("are left out" in w for w in routing.warnings)
+    assert any("treated as a new GroupID and left out" in w for w in routing.warnings)

@@ -300,6 +300,10 @@ class Routing:
     reports: list[OrderReport]
     warnings: list[str] = field(default_factory=list)
     empty_orders: list[OrderPrefix] = field(default_factory=list)
+    # False: files with GroupIDs new to the main order are left out of every
+    # output (--resequencing-contains-new false); each report still counts them.
+    include_new: bool = True
+    left_out: list[RoutedFile] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -378,14 +382,17 @@ def route(
     listings: Sequence[tuple[OrderPrefix, Sequence[ListedObject]]],
     *,
     main_group_ids: Iterable[str] = (),
+    include_new: bool = True,
 ) -> Routing:
     """Route every listed file into the main output set or its own order's.
 
     ``listings`` holds the main order first, then each re-sequencing order.
     The main order's GroupIDs come from the files it matched, plus any in
     ``main_group_ids`` (h5 passes every GroupID folder, so one holding only
-    ``raw/`` still counts). An output set is
-    only made for a re-sequencing order that brought new GroupIDs.
+    ``raw/`` still counts). An output set is only made for a re-sequencing
+    order that brought new GroupIDs, and only when ``include_new`` is true.
+    With ``include_new`` false, files with new GroupIDs are re-sequencing for
+    a separate order: they go into ``left_out`` and no output.
     """
     if not listings or not listings[0][0].is_primary:
         raise ValueError("route() needs the main order first")
@@ -400,12 +407,18 @@ def route(
     main_report.group_ids = sorted(main_groups)
     main_by_normalized = {_normalized(gid): gid for gid in main_groups}
 
-    routing = Routing(output_sets=[main_set], reports=[main_report])
-    if not main_objects:
+    routing = Routing(
+        output_sets=[main_set], reports=[main_report], include_new=include_new
+    )
+    new_fate = (
+        "goes into its own order's output set"
+        if include_new
+        else "is left out (--resequencing-contains-new false)"
+    )
+    if not main_groups:
         routing.warnings.append(
             f"The main order {main_order.cro_order} ({main_order.uri}) matched "
-            "no files, so every re-sequenced file goes into its own order's "
-            "output set"
+            f"no files, so every re-sequenced file {new_fate}"
         )
 
     for order, objects in listings[1:]:
@@ -428,13 +441,21 @@ def route(
                 tally = report.new_groups
             tally[routed.group_id] = tally.get(routed.group_id, 0) + 1
         if own_set.files:
-            routing.output_sets.append(own_set)
+            if include_new:
+                routing.output_sets.append(own_set)
+            else:
+                routing.left_out.extend(own_set.files)
         if not report.added_to_main and main_groups:
+            fate = (
+                "go into its own output set"
+                if include_new
+                else "are left out (--resequencing-contains-new false)"
+            )
             routing.warnings.append(
                 f"None of re-sequencing order {order.cro_order}'s "
                 f"{len(report.new_groups)} GroupID(s) are in the main order "
-                f"{main_order.cro_order}, so all its files go into its own "
-                "output set; check that this is the right order"
+                f"{main_order.cro_order}, so all its files {fate}; check that "
+                "this is the right order"
             )
         for gid in sorted(report.new_groups):
             near = main_by_normalized.get(_normalized(gid))
@@ -443,5 +464,6 @@ def route(
                     f"GroupID {gid!r} in {order.cro_order} differs from "
                     f"{near!r} in {main_order.cro_order} only by '-'/'_' or "
                     "case; it is treated as a new GroupID"
+                    + ("" if include_new else " and left out")
                 )
     return routing

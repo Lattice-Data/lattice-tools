@@ -42,6 +42,7 @@ python -m file_extract fastq s3://example-bucket/path/to/ORDER \
 | `-o`, `--output` | Diagnostic TSV (default: `<order>_fastq_info.tsv`) |
 | `--no-require-raw` | Don't require `/raw/` in the S3 key. Cannot be combined with `--resequencing-orders` |
 | `--resequencing-orders` | Re-sequencing order folders, space- and/or comma-separated. See **Re-sequencing orders** below |
+| `--resequencing-contains-new` | `true` or `false` (default `false`), only with `--resequencing-orders`: whether GroupIDs new to the main order get their own outputs (`true`) or are left out (`false`). See **Re-sequencing orders** below |
 | `--workers` | Process pool size (default: min(64, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
 | `--strict` | Exit 1 if any per-file CRC or metadata fetch fails, or if a `--resequencing-orders` entry matches no files |
@@ -168,6 +169,7 @@ python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 -
 | `--workers` | Positive thread count (default: 8; 64 with `--no-introspect --no-md5`, when each file is one small request). The S3 connection pool is sized to this count |
 | `--retries` | Attempts per transient S3 error, the first included; at least 1 (default: 5) |
 | `--resequencing-orders` | Re-sequencing order folders, space- and/or comma-separated. See **Re-sequencing orders** below |
+| `--resequencing-contains-new` | `true` or `false` (default `false`), only with `--resequencing-orders`: whether GroupIDs new to the main order get their own outputs (`true`) or are left out (`false`). See **Re-sequencing orders** below |
 | `--strict` | Exit 1 if any per-file enrichment fails, the `md5sum` read included, or if a `--resequencing-orders` entry matches no files |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
@@ -251,6 +253,7 @@ An order is sometimes sequenced again under a new CRO order. `fastq`, `cram` and
 ```bash
 python -m file_extract fastq s3://czi-novogene/labalpha/ORDER_A \
   --resequencing-orders s3://czi-novogene/labalpha/ORDER_B,s3://czi-novogene/labalpha/ORDER_C \
+  --resequencing-contains-new true \
   --lab example-lab --cro-order ORDER_A --is-pilot-order false \
   --sequencing-platform "Ultima Genomics UG 100"
 ```
@@ -260,7 +263,9 @@ python -m file_extract fastq s3://czi-novogene/labalpha/ORDER_A \
 A file's GroupID is the first folder below its order: `ORDER_B/GRP_001/raw/…` has GroupID `GRP_001`. The main order's GroupIDs come from the files it matched.
 
 - **GroupID the main order also has:** the file is **added** to the main order's outputs, next to the main order's own files. Nothing from the main order is replaced or removed.
-- **GroupID new to the main order:** the file goes into a separate set of outputs named after the re-sequencing order it came from.
+- **GroupID new to the main order:** depends on `--resequencing-contains-new`:
+  - **`true`:** the file goes into a separate set of outputs named after the re-sequencing order it came from.
+  - **`false`** (the default): the new GroupIDs are re-sequencing for a separate order, so their files are left out of every output and never fetched. The run lists them per order as `New GroupIDs, NOT written` and prints how many files were left out.
 
 So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` and `GRP_003`, and `ORDER_C` holding only `GRP_002`:
 
@@ -269,7 +274,7 @@ So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` a
 | `ORDER_A_fastq_info.tsv`, `ORDER_A_SequenceFile.tsv`, `ORDER_A_SequenceFileSet.tsv` | All of `ORDER_A`, plus `ORDER_B`'s `GRP_001` files and `ORDER_C`'s `GRP_002` files |
 | `ORDER_B_fastq_info.tsv`, `ORDER_B_SequenceFile.tsv`, `ORDER_B_SequenceFileSet.tsv` | `ORDER_B`'s `GRP_003` files only |
 
-`ORDER_C` gets no output set of its own because it brought no new GroupIDs. `h5` works the same way, with one `<order>_h5_info.tsv` per output set.
+`ORDER_C` gets no output set of its own because it brought no new GroupIDs. The table is for `--resequencing-contains-new true`, as in the example command. With the default `false`, the `ORDER_B` row goes too: its `GRP_003` files are left out, and only the `ORDER_A` outputs are written. `h5` works the same way, with one `<order>_h5_info.tsv` per output set.
 
 ### h5: GroupIDs come from folders, one processed/ each
 
@@ -302,6 +307,7 @@ GroupIDs new to the main order are not checked. To find folders, `h5` lists ever
 - **Same bucket** as the main order, and a folder rather than a whole bucket.
 - **No overlap:** a re-sequencing order cannot equal, sit inside, or contain the main order or another re-sequencing order, and no two orders may share an order ID.
 - **Not with `--no-require-raw`**, since routing needs every file under `raw/`.
+- **`--resequencing-contains-new`** takes `true` or `false`, defaults to `false`, and is refused without `--resequencing-orders`.
 
 Problems with the paths themselves exit 2 before any S3 call.
 
@@ -309,7 +315,7 @@ Problems with the paths themselves exit 2 before any S3 call.
 
 - A re-sequencing order that matched no files (exit 1 under `--strict`).
 - A re-sequencing order whose GroupIDs are all new, which often means the wrong order was passed.
-- A new GroupID that differs from a main one only by `-`/`_` or case. It is still treated as new.
+- A new GroupID that differs from a main one only by `-`/`_` or case. It is still treated as new, so with `--resequencing-contains-new false` it is left out.
 - The **Files outside `raw/`** block, grouped by order, without the `--no-require-raw` suggestion.
 
 ---

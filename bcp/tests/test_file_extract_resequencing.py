@@ -25,6 +25,7 @@ from tests.file_extract_helpers import MockS3Client
 BUCKET = "czi-novogene"
 PROJ = "smith-proj/"
 MAIN_URI = f"s3://{BUCKET}/{PROJ}ORDER_A"
+CONTAINS_NEW = ["--resequencing-contains-new", "true"]
 SHEET_ARGS = [
     "--lab",
     "example-lab",
@@ -102,11 +103,14 @@ def _column(path: Path, name: str) -> list[str]:
     return [row[index] for row in rows[1:]]
 
 
-def _reseq(*orders: str) -> list[str]:
-    return [
+def _reseq(*orders: str, contains_new: str | None = "true") -> list[str]:
+    argv = [
         "--resequencing-orders",
         ",".join(f"s3://{BUCKET}/{PROJ}{o}" for o in orders),
     ]
+    if contains_new is not None:
+        argv += ["--resequencing-contains-new", contains_new]
+    return argv
 
 
 # --- routing through the CLI ---------------------------------------------
@@ -248,10 +252,13 @@ def test_cram_reseq_routes_and_reports_order(
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
-        (["--resequencing-orders", "s3://other/smith-proj/ORDER_B"], "same bucket"),
-        (["--resequencing-orders", f"s3://{BUCKET}"], "a bucket alone"),
-        (["--resequencing-orders", f"{MAIN_URI}/GRP_001"], "overlaps"),
-        (["--resequencing-orders", MAIN_URI], "is the main order"),
+        (
+            ["--resequencing-orders", "s3://other/smith-proj/ORDER_B", *CONTAINS_NEW],
+            "same bucket",
+        ),
+        (["--resequencing-orders", f"s3://{BUCKET}", *CONTAINS_NEW], "a bucket alone"),
+        (["--resequencing-orders", f"{MAIN_URI}/GRP_001", *CONTAINS_NEW], "overlaps"),
+        (["--resequencing-orders", MAIN_URI, *CONTAINS_NEW], "is the main order"),
         (
             _reseq("ORDER_B") + ["--no-require-raw"],
             "--no-require-raw cannot be combined",
@@ -614,3 +621,92 @@ def test_h5_layout_errors(
     assert code == 1
     assert message in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+# --- --resequencing-contains-new ---------------------------------------------
+
+
+def test_contains_new_false_writes_no_output_for_new_groups(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    keys = (
+        _fq("ORDER_A", "GRP_001", "RUN1-GRP_001")
+        + _fq("ORDER_B", "GRP_001", "RUN2-GRP_001")
+        + _fq("ORDER_B", "GRP_003", "RUN2-GRP_003")
+    )
+    calls: list[list[str]] = []
+    real = sequence_sets.fetch_results
+
+    def spy(s3_client: Any, bucket: str, wanted: list[str], **kwargs: Any) -> Any:
+        calls.append(list(wanted))
+        return real(s3_client, bucket, wanted, **kwargs)
+
+    with patch.object(sequence_sets, "fetch_results", spy):
+        code = _run(keys, _reseq("ORDER_B", contains_new="false"), tmp_path)
+    assert code == 0
+    # The shared GroupID is still added to the main order.
+    assert _column(tmp_path / "ORDER_A_fastq_info.tsv", "source_order") == [
+        "ORDER_A",
+        "ORDER_A",
+        "ORDER_B",
+        "ORDER_B",
+    ]
+    # No ORDER_B outputs, and the left-out files were never fetched.
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "ORDER_A_SequenceFile.tsv",
+        "ORDER_A_SequenceFileSet.tsv",
+        "ORDER_A_fastq_info.tsv",
+    ]
+    assert len(calls) == 1
+    assert not any("GRP_003" in key for key in calls[0])
+    out = capsys.readouterr().out
+    assert "New GroupIDs, NOT written" in out
+    assert "GRP_003 (2 file(s))" in out
+    assert "Left out 2 file(s)" in out
+
+
+def test_contains_new_defaults_to_false(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    keys = _fq("ORDER_A", "GRP_001", "RUN1-GRP_001") + _fq(
+        "ORDER_B", "GRP_003", "RUN2-GRP_003"
+    )
+    assert _run(keys, _reseq("ORDER_B", contains_new=None), tmp_path) == 0
+    assert not (tmp_path / "ORDER_B_fastq_info.tsv").exists()
+    assert "New GroupIDs, NOT written" in capsys.readouterr().out
+
+
+def test_contains_new_false_h5_writes_only_the_main_tsv(tmp_path: Path) -> None:
+    keys = [
+        _h5("ORDER_A", "GRP_002"),
+        f"{PROJ}ORDER_A/GRP_001/raw/RUN1_R1_001.fastq.gz",
+        _h5("ORDER_B", "GRP_001"),
+        _h5("ORDER_B", "GRP_003"),
+    ]
+    assert _run_h5(keys, _reseq("ORDER_B", contains_new="false"), tmp_path) == 0
+    assert [p.name for p in tmp_path.iterdir()] == ["ORDER_A_h5_info.tsv"]
+    assert set(_h5_rows(tmp_path / "ORDER_A_h5_info.tsv")) == {
+        f"s3://{BUCKET}/{_h5('ORDER_A', 'GRP_002')}",
+        f"s3://{BUCKET}/{_h5('ORDER_B', 'GRP_001')}",
+    }
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (
+            CONTAINS_NEW,
+            "--resequencing-contains-new needs --resequencing-orders",
+        ),
+        (_reseq("ORDER_B", contains_new="maybe"), "expected 'true' or 'false'"),
+    ],
+)
+def test_contains_new_usage_errors_exit_2(
+    argv: list[str], message: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch("file_extract.cli.boto3.client") as boto:
+        with pytest.raises(SystemExit) as info:
+            main(["fastq", MAIN_URI, *SHEET_ARGS, *argv])
+    assert info.value.code == 2
+    assert message in capsys.readouterr().err
+    boto.assert_not_called()

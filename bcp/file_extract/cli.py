@@ -425,9 +425,15 @@ def _print_routing(routing: Routing) -> None:
             print(
                 f"    Added to {main.cro_order}: {_group_counts(report.added_to_main)}"
             )
-        if report.new_groups:
+        if report.new_groups and routing.include_new:
             print(
                 f"    New GroupIDs, written to {order.cro_order} outputs: "
+                f"{_group_counts(report.new_groups)}"
+            )
+        elif report.new_groups:
+            print(
+                "    New GroupIDs, NOT written (--resequencing-contains-new "
+                f"false: re-sequencing for a separate order): "
                 f"{_group_counts(report.new_groups)}"
             )
 
@@ -482,7 +488,10 @@ def _run_sequence_orders(args: argparse.Namespace, mode: _SequenceMode) -> int:
 
     # Refuse anything but the 10x layout before a single file is fetched.
     check_layout([(o, listing.targets) for o, listing in listings], RAW_LAYOUT)
-    routing = route([(o, listing.targets) for o, listing in listings])
+    routing = route(
+        [(o, listing.targets) for o, listing in listings],
+        include_new=args.resequencing_contains_new,
+    )
     _print_routing(routing)
     skipped = _print_outside_raw(
         mode.kind,
@@ -521,6 +530,7 @@ def _run_sequence_orders(args: argparse.Namespace, mode: _SequenceMode) -> int:
 
     total = sum(len(t.files) for t in targets)
     print(f"\nFound {total} matching files across {len(orders)} orders")
+    _print_left_out(routing)
     if not targets:
         print("Nothing to do.")
         return 1 if args.strict and routing.empty_orders else 0
@@ -642,6 +652,15 @@ def _run_h5(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_left_out(routing: Routing) -> None:
+    """With --resequencing-contains-new false, say how many files were left out."""
+    if routing.left_out:
+        print(
+            f"Left out {len(routing.left_out)} file(s) with GroupIDs new to the "
+            "main order (--resequencing-contains-new false)"
+        )
+
+
 def _run_h5_orders(args: argparse.Namespace) -> int:
     """h5 over a main order plus --resequencing-orders."""
     orders: list[OrderPrefix] = args.orders
@@ -690,13 +709,18 @@ def _run_h5_orders(args: argparse.Namespace) -> int:
     check_layout(listings, PROCESSED_LAYOUT)
     # A GroupID in the main and a re-sequencing order must have one processed/.
     check_single_processed(folders)
-    routing = route(listings, main_group_ids=folders[0].group_ids)
+    routing = route(
+        listings,
+        main_group_ids=folders[0].group_ids,
+        include_new=args.resequencing_contains_new,
+    )
     _print_routing(routing)
     _print_warnings(routing.warnings)
 
     sets = [s for s in routing.output_sets if s.files]
     total = sum(len(s.files) for s in sets)
     print(f"\nFound {total} matching files across {len(orders)} orders")
+    _print_left_out(routing)
     if not sets:
         print("Nothing to do.")
         return 1 if args.strict and routing.empty_orders else 0
@@ -849,9 +873,14 @@ def _invalid_uri_exit(message: str) -> NoReturn:
 def _parse_orders(args: argparse.Namespace) -> None:
     """Check --resequencing-orders before any S3 call; store them on args."""
     values = getattr(args, "resequencing_orders", None)
+    contains_new = getattr(args, "resequencing_contains_new", None)
     args.orders = None
     if values is None:
+        if contains_new is not None:
+            _invalid_uri_exit("--resequencing-contains-new needs --resequencing-orders")
         return
+    # Default false: new GroupIDs are re-sequencing for a separate order.
+    args.resequencing_contains_new = bool(contains_new)
     if getattr(args, "no_require_raw", False):
         _invalid_uri_exit(
             "--no-require-raw cannot be combined with --resequencing-orders: "
@@ -918,6 +947,18 @@ def _add_resequencing_argument(parser: argparse.ArgumentParser, layout: str) -> 
             "order) the main order also has is added to the main order's "
             "outputs; new GroupIDs get outputs named after their order. 10x "
             f"layout only: {{order}}/{layout}"
+        ),
+    )
+    parser.add_argument(
+        "--resequencing-contains-new",
+        type=_pilot_flag,
+        default=None,
+        metavar="{true,false}",
+        help=(
+            "Only with --resequencing-orders (default: false). true: GroupIDs "
+            "new to the main order get outputs named after their re-sequencing "
+            "order. false: they are re-sequencing for a separate order and are "
+            "left out of every output"
         ),
     )
 
