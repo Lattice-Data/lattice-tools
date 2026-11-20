@@ -669,7 +669,8 @@ def _shared_raw_prefixes(
     """Per h5 in the main set, the {GroupID}/raw/ of every order with that GroupID.
 
     A GroupID shared with a re-sequencing order is re-processed from both runs'
-    reads, so its ``derived_from`` lists the FASTQs of each order, main first.
+    reads, so its ``derived_from`` lists the FASTQs of each order (as one
+    sorted list; see derived_from_cells). Prefixes are listed main first.
     """
     return {
         r.obj.key: [
