@@ -224,6 +224,8 @@ def validate_raw_nemo(url):
     soup = BeautifulSoup(r.text, 'html.parser')
 
     if 'data.nemoarchive.org' in url:
+        if not url.endswith('/'):
+            url += '/'
         file_list = [a.get('href') for a in soup.find_all('a') if not a.get('href','?').startswith('?')]
         raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
         if raw_files:
