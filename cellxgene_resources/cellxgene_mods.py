@@ -1223,7 +1223,35 @@ def side_by_side_dotplot(adata, gene_list, groupby):
     plt.show()
 
 
-def validate(file):
+def _validate_fragments(h5ad_file, fragments_file):
+    """cellxgene-schema process-fragment on an h5ad + its fragments file, reporting its log; returns True if valid.
+    Its exit status can't be used (7.1.2 exits 1 for a valid pair and 0 when it finds errors), so validity comes
+    from the log: the 'valid' message and no errors."""
+    p = subprocess.run(['cellxgene-schema', 'process-fragment', h5ad_file, fragments_file],
+                       capture_output=True, text=True)
+    valid, errors, level = False, False, None
+    for line in (p.stdout + p.stderr).splitlines():
+        prefix, _, rest = line.partition(':')
+        if prefix in ('DEBUG', 'INFO', 'WARNING', 'ERROR'):
+            level = prefix if prefix in ('WARNING', 'ERROR') else None
+            message = rest.split(':', 1)[-1]   # drop the logger name, e.g. 'cellxgene_schema.atac_seq'
+        else:
+            message = line.strip()             # continues the message above, e.g. the list of errors
+        errors |= level == 'ERROR'
+        if message == 'Fragment and Anndata file are valid':
+            valid = True
+            report(message, 'GOOD')
+        elif message:
+            report(message, level)
+    return valid and not errors
+
+
+def validate(file, fragments=None):
+    """Run cellxgene-schema validation on an h5ad, reporting its output; returns True if valid.
+    With fragments, validates the h5ad together with that fragments file instead (cellxgene-schema process-fragment)."""
+    if fragments:
+        return _validate_fragments(file, fragments)
+    validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     for line in validate_process.stdout.decode('utf-8').split('\n'):
         report(line)
