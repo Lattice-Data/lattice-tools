@@ -1256,7 +1256,6 @@ def validate(file, fragments=None):
     if fragments:
         return _validate_fragments(file, fragments)
     validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     for line in validate_process.stdout.decode('utf-8').split('\n'):
         report(line)
     for line in validate_process.stderr.decode('utf-8').split('\n'):
