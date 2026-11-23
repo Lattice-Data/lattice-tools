@@ -277,7 +277,8 @@ def validate_raw_hca(url):
 def validate_raw_insdc(url, arrex=False):
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
 
-    acc = url.split('/')[-1].split('=')[-1]
+    url = url.rstrip('/')
+    acc = re.split((r'/|='), url)[-1]
     insdc_attrs = insdc_meta(acc, arrex)
     df = pd.DataFrame(insdc_attrs)
     formats = [f for c in df.columns for f in df[c].unique() if 'semantic' in c]
