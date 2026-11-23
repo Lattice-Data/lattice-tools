@@ -816,6 +816,10 @@ def evaluate_obs_schema(obs, labels=False):
         if o not in OBS_FULL_STANDARDS and '_'.join(o.split()).lower() in OBS_FULL_STANDARDS:
             report(f'"close enough" schema conflict: suggest renaming obs.{o}\n', 'ERROR')
 
+    if 'assay_ontology_term_id' in obs.columns:
+        if 'EFO:0022980' in obs['assay_ontology_term_id'].unique():
+            report('assay should not use terms specifying minor kits versions (EFO:0022980)', 'ERROR')
+
 
 def evaluate_obs(obs):
     long_fields = []
