@@ -1,5 +1,6 @@
 import anndata as ad
 import dask.array as da
+import gzip
 import h5py
 import json
 import matplotlib.pyplot as plt
@@ -9,17 +10,27 @@ import os
 import pandas as pd
 import re
 import scanpy as sc
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
+from collections import Counter,defaultdict
+from concurrent.futures import ThreadPoolExecutor,as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
+import cellxgene_schema.atac_seq as atac_seq
 import cellxgene_schema.gencode as gencode
-import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
+import cellxgene_schema.utils as utils
 
+
+BARCODE_PATTERN = re.compile(r'[ACGT]{12,}')
+PLACEHOLDER = 'B@RCODE'
+COMPLEMENT = str.maketrans('ACGT', 'TGCA')
 
 EXPECTED_BARCODES = {
     'EFO:0009901':                    '3pv1',
@@ -611,12 +622,11 @@ def map_filter_gene_ids(adata):
 
 
 def extract_barcodes(index):
-    pattern = re.compile(r'[ACTG]{12,}')
     barcodes = []
     affixes = []
 
     for i in index:
-        m = pattern.search(str(i))
+        m = BARCODE_PATTERN.search(str(i))
         if m:
             barcode = m.group()
             barcodes.append(barcode)
@@ -1771,3 +1781,271 @@ def evaluate_var(adata):
             report(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered from .X')
     else:
         report('feature_is_filtered not found in var', 'ERROR')
+
+def _parse_index(index_value):
+    """Split a barcode string into its barcode and a template with the barcode replaced by PLACEHOLDER, e.g.
+    'P3203O_AAACAGCCAAACAACA-1' -> ('AAACAGCCAAACAACA', 'P3203O_B@RCODE-1'). Returns (None, None) if there's no barcode."""
+    match = re.search(BARCODE_PATTERN, index_value)
+    if match is None:
+        return None, None
+    templated = index_value[:match.start()] + PLACEHOLDER + index_value[match.end():]
+    return match.group(), templated
+
+def build_libraries(obs_index):
+    """Group matrix index values by library: {template: {barcode: index value}}, e.g.
+    {'P3203O_B@RCODE-1': {'AAACAGCCAAACAACA': 'P3203O_AAACAGCCAAACAACA-1', ...}}. Raises if any value has no barcode."""
+    libraries = defaultdict(dict)
+    unparsed = []
+    for idx in obs_index:
+        barcode, lib_id = _parse_index(idx)
+        if barcode is None:
+            unparsed.append(idx)
+        else:
+            libraries[lib_id][barcode] = idx
+    if unparsed:
+        raise ValueError(f'{len(unparsed)} index values have no barcode, e.g. {unparsed[:3]}')
+    return dict(libraries)
+
+def check_id_map(id_map, mx_libs, file_ids):
+    """Compare id_map with the matrix libraries and the fragments files, reporting anything that doesn't line up.
+    ERROR: curate_fragments can't run those entries. WARNING: may be intentional."""
+    checks = [
+        ('matrix libraries not in id_map',
+         [a for a in mx_libs if a not in id_map.values()], 'WARNING'),
+        ('id_map values that are not matrix libraries',
+         [a for a in id_map.values() if a not in mx_libs], 'ERROR'),
+        ('fragments files not in id_map',
+         [a for a in file_ids if a not in id_map.keys()], 'WARNING'),
+        ('id_map keys with no fragments file',
+         [a for a in id_map.keys() if a not in file_ids], 'ERROR'),
+    ]
+    for i, (label, items, level) in enumerate(checks):
+        if items:
+            report(f'{len(items)} {label}:\n  ' + '\n  '.join(items), level)
+            if i < len(checks) - 1:
+                print()
+    if not any(items for _, items, _ in checks):
+        report('id_map aligns with the matrix libraries and fragments files', 'GOOD')
+
+def _revcomp(barcode):
+    """Reverse complement of a barcode."""
+    return barcode.translate(COMPLEMENT)[::-1]
+
+def _multiome_barcode_translations(atac_file='ref_files/atac_737K-arc-v1.txt.gz',
+                                  gex_file='ref_files/gex_737K-arc-v1.txt.gz'):
+    """{ATAC barcode: GEX barcode} from the paired 10x multiome whitelists (same line = same gel bead)."""
+    with gzip.open(atac_file, 'rt') as fa, gzip.open(gex_file, 'rt') as fg:
+        return {a.strip(): g.strip() for a, g in zip(fa, fg)}
+
+def _barcode_conversions(atac_to_gex):
+    """Ways a fragments barcode can relate to its matrix barcode, tried in this order. Each is a pair of
+    functions on barcodes: (fragments -> matrix, for the check; matrix -> fragments, to build the rename map)."""
+    gex_to_atac = {g: a for a, g in atac_to_gex.items()}
+    return {
+        'none': (lambda b: b, lambda b: b),
+        'atac_to_gex': (atac_to_gex.get, gex_to_atac.get),
+        'revcomp': (_revcomp, _revcomp),
+        'revcomp_atac_to_gex': (lambda b: atac_to_gex.get(_revcomp(b)),   # reverse complement first, then translate
+                                lambda b: _revcomp(gex_to_atac[b]) if b in gex_to_atac else None),
+    }
+
+def _head_barcodes(frag_file, n):
+    """The barcode column of the first n fragments, skipping '#' header lines."""
+    barcodes = []
+    with gzip.open(frag_file, 'rt') as f:
+        for line in f:
+            if not line.startswith('#'):
+                barcodes.append(line.split('\t')[3])
+                if len(barcodes) == n:
+                    break
+    if not barcodes:
+        raise ValueError(f'no fragments in {frag_file}')
+    return barcodes
+
+def _check_library(frag_file, barcode_to_obs, conversions, n_check=10_000, min_match=0.1):
+    """From its first n_check fragments: how this file writes its barcodes (template, e.g. 'B@RCODE-1') and
+    which conversion makes them match its matrix barcodes (None if none reaches min_match), with the share
+    matching for each conversion tried."""
+    parsed = [_parse_index(b) for b in _head_barcodes(frag_file, n_check)]
+    sample = [barcode for barcode, _ in parsed if barcode]
+    if not sample:
+        raise ValueError(f'none of the first {len(parsed)} fragments have a barcode matching {BARCODE_PATTERN.pattern}')
+    template = Counter(t for _, t in parsed if t).most_common(1)[0][0]
+    shares = {}
+    for name, (to_matrix, _) in conversions.items():
+        # share of fragments, not of unique barcodes: cells carry most of the fragments
+        shares[name] = sum(to_matrix(b) in barcode_to_obs for b in sample) / len(sample)
+        if shares[name] >= min_match:
+            return name, template, shares
+    return None, template, shares
+
+def _rename_map(barcode_to_obs, template, to_fragments):
+    """{barcode exactly as written in the fragments file: obs index value} for one library."""
+    frag_to_obs = {}
+    for barcode, index_value in barcode_to_obs.items():
+        frag_barcode = to_fragments(barcode)
+        if frag_barcode is not None:
+            frag_to_obs[template.replace(PLACEHOLDER, frag_barcode)] = index_value
+    return frag_to_obs
+
+# One pass over the file: skip '#' header lines, count fragments per barcode (all barcodes, for QA), keep only
+# this library's cells on supported chromosomes and swap in the obs index value. Also counts, for the reports,
+# fragments dropped per unsupported chromosome and fragments ending past their chromosome's length.
+AWK_PROG = r'''
+BEGIN { FS = OFS = "\t" }
+FILENAME == map_file { m[$1] = $2; next }          # rename map: fragment barcode -> obs index value
+FILENAME == chrom_file { len[$1] = $2 + 0; next }  # supported chromosome -> length
+/^#/ { next }
+{ n[$4]++ }                                        # fragments per barcode, all barcodes
+!($4 in m) { next }                                # not one of this library's cells
+!($1 in len) { other[$1]++; next }                 # unsupported chromosome: dropped
+$3 > len[$1] { too_long[$1]++ }                    # ends past the chromosome: kept, reported
+{ k[$4]++; $4 = m[$4]; print }
+END {
+    for (b in n) print "raw", b, n[b] > counts_file
+    for (b in k) print "kept", b, k[b] > counts_file
+    for (c in other) print "unsupported", c, other[c] > counts_file
+    for (c in too_long) print "too_long", c, too_long[c] > counts_file
+}
+'''
+
+def _filter_library(frag_file, frag_to_obs, chrom_file, output, tmp_dir):
+    """Rename & filter one fragments file in a single pass, into a gzipped output. Returns fragments per
+    barcode in the raw file and in the output, fragments dropped per unsupported chromosome, and fragments
+    ending past their chromosome's length, per chromosome."""
+    name = frag_file.split('/')[-1]
+    map_file, counts_file = f'{tmp_dir}/{name}.map.tsv', f'{tmp_dir}/{name}.counts.tsv'
+    with open(map_file, 'w') as f:
+        f.writelines(f'{frag}\t{obs}\n' for frag, obs in frag_to_obs.items())
+    awk = shutil.which('mawk') or 'awk'                                  # mawk is ~3x faster than gawk
+    compress = 'bgzip -@ 4 -c' if shutil.which('bgzip') else 'gzip -c'  # bgzip is multithreaded
+    q = shlex.quote
+    p = subprocess.run(['bash', '-c',
+        f'set -o pipefail; gzip -dc {q(frag_file)} '
+        f'| {awk} -v map_file={q(map_file)} -v chrom_file={q(chrom_file)} -v counts_file={q(counts_file)} '
+        f'{q(AWK_PROG)} {q(map_file)} {q(chrom_file)} - '
+        f'| {compress} > {q(output)}'
+    ], capture_output=True, text=True)
+    if p.returncode:
+        if os.path.exists(output):
+            os.remove(output)                    # don't leave a partial file behind
+        raise RuntimeError(p.stderr.strip())     # gzip/awk's own error message
+    counts = pd.read_csv(counts_file, sep='\t', header=None, names=['kind', 'key', 'n'],
+                         dtype={'key': str}, keep_default_na=False)
+    by_kind = {kind: group.set_index('key')['n'] for kind, group in counts.groupby('kind')}
+    return tuple(by_kind.get(kind, pd.Series(dtype=int)) for kind in ['raw', 'kept', 'unsupported', 'too_long'])
+
+def _plot_library(file_id, raw_counts, kept):
+    """Fragments per barcode up to 1,000: all barcodes in the raw file (left) vs matrix barcodes only (right)."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    for ax, counts, title in [(axes[0], raw_counts, 'unfiltered'), (axes[1], kept, 'filtered')]:
+        ax.hist(counts, range=(0, 1000), bins=40)
+        ax.set_xlim(0.001, 1000)
+        ax.set_ylim(ymin=0)
+        ax.set_title(f'{file_id} {title}')
+        ax.set_xlabel('fragments per barcode')
+        ax.set_ylabel('barcodes')
+    plt.show()
+    plt.close(fig)
+
+def curate_fragments(mx_libs, id_map, my_dir, file_end, filtered_end, organism, n_jobs=4, n_check=10_000, min_match=0.1):
+    """Rename & filter each fragments file in id_map ({file_id: library template}) down to its matrix library's cells.
+
+    Each file ({my_dir}{file_id}{file_end}) is first checked on its first n_check fragments: the first barcode
+    conversion under which at least min_match of them come from the library's cells is used for that file. Files
+    that pass are then processed n_jobs at a time into {my_dir}{file_id}{filtered_end}: barcodes are renamed to the
+    obs index values, and fragments are dropped if they're from non-cells or from a chromosome not supported for
+    organism ('NCBITaxon:9606' or 'NCBITaxon:10090', per cellxgene_schema.atac_seq). Fragments ending past their
+    chromosome's length are kept but reported, since they may have been aligned to a different assembly.
+
+    Each check and each file is reported (and plotted) as it finishes: a WARNING lists any unsupported chromosomes
+    dropped, and an ERROR is given for each chromosome with fragments past its length.
+
+    Returns (results, missing): a table with one row per id_map entry, counting only the fragments written, and the
+    matrix index values with no fragments, from the libraries that were processed.
+    """
+    chrom_tables = atac_seq.organism_ontology_term_id_by_chromosome_length_table
+    chrom_lengths = chrom_tables.get(organism)
+    if chrom_lengths is None:
+        raise ValueError(f'no supported chromosomes for organism {organism!r}; accepted values: {", ".join(chrom_tables)}')
+    conversions = _barcode_conversions(_multiome_barcode_translations())   # whitelists read once (~0.5 s)
+    results = {}
+    rename_maps = {}   # libraries that pass the check
+    found = set()
+    processed = set()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        chrom_file = f'{tmp_dir}/chromosomes.tsv'
+        with open(chrom_file, 'w') as f:
+            f.writelines(f'{chrom}\t{length}\n' for chrom, length in chrom_lengths.items())
+        ex = ThreadPoolExecutor(n_jobs)
+        try:
+            # 1. check every library on its first fragments (seconds for all), reporting each as it finishes
+            futures = {}
+            for file_id, lib_id in id_map.items():
+                frag_file = f'{my_dir}{file_id}{file_end}'
+                futures[ex.submit(_check_library, frag_file, mx_libs[lib_id], conversions, n_check, min_match)] = file_id
+
+            for fut in as_completed(futures):
+                file_id = futures[fut]
+                lib_id = id_map[file_id]
+                try:
+                    conversion, template, shares = fut.result()
+                except Exception as e:
+                    report(f'{file_id}: {type(e).__name__}: {e}', 'ERROR')
+                    results[file_id] = {'error': f'{type(e).__name__}: {e}'}
+                    continue
+                results[file_id] = {'barcode conversion': conversion}
+                if conversion is None:
+                    results[file_id]['error'] = 'no conversion matched'
+                    report(f"{file_id}: possible mis-mapping. no barcode conversion matches {lib_id}\n"
+                           f"{' '*7}({', '.join(f'{k} {v:.0%}' for k, v in shares.items())})",
+                           'ERROR')
+                else:
+                    report(f'{file_id}: fragment barcodes match {lib_id} with conversion {conversion!r} ({shares[conversion]:.0%})', 'GOOD')
+                    rename_maps[file_id] = _rename_map(mx_libs[lib_id], template, conversions[conversion][1])
+            print()
+            # 2. rename, filter & write the libraries that passed, n_jobs at a time, reporting each as it finishes
+            futures = {}
+            for file_id, frag_to_obs in rename_maps.items():
+                frag_file = f'{my_dir}{file_id}{file_end}'
+                output = f'{my_dir}{file_id}{filtered_end}'
+                futures[ex.submit(_filter_library, frag_file, frag_to_obs, chrom_file, output, tmp_dir)] = file_id
+
+            for fut in as_completed(futures):
+                file_id = futures[fut]
+                try:
+                    raw_counts, kept, unsupported, too_long = fut.result()
+                except Exception as e:
+                    report(f'{file_id}: {type(e).__name__}: {e}', 'ERROR')
+                    results[file_id]['error'] = f'{type(e).__name__}: {e}'
+                    continue
+                found.update(rename_maps[file_id][b] for b in kept.index)
+                processed.add(id_map[file_id])
+                n_cells = len(mx_libs[id_map[file_id]])
+                report(f'{file_id}: {len(kept)} / {n_cells} matrix barcodes have fragments',
+                       'GOOD' if len(kept) == n_cells else 'ERROR')
+                if len(unsupported):
+                    report(f"{file_id}: fragments dropped from unsupported chromosomes: {','.join(sorted(unsupported.index))}",
+                        'WARNING')
+                for chrom in [c for c in chrom_lengths if c in too_long.index]:
+                    report(f'{file_id}: {too_long[chrom]} fragments are past the length of {chrom} ({chrom_lengths[chrom]})\n'
+                        f"{' '*7}A different assembly was likely used in alignment and this file requires liftover",
+                        'ERROR')
+                _plot_library(file_id, raw_counts, kept)
+                results[file_id].update({
+                    'fragments kept': kept.sum(),
+                    'raw': round(raw_counts.mean()),
+                    'filtered': round(kept.mean()) if len(kept) else None,
+                    'with fragments': len(kept),
+                    'total': n_cells,
+                })
+        finally:
+            ex.shutdown(cancel_futures=True)   # stopping the cell also drops libraries that haven't started
+
+    sub_cols = ['barcode conversion','fragments kept','raw','filtered','with fragments','total','error']
+    results = pd.DataFrame.from_dict(results, orient='index').reindex(index=list(id_map), columns=sub_cols).convert_dtypes()
+    top_cols = ['','','fragments per barcode','fragments per barcode','matrix barcodes','matrix barcodes','']
+    results.columns = [top_cols, results.columns]
+    missing = [idx for lib_id, barcode_to_obs in mx_libs.items() if lib_id in processed
+               for idx in barcode_to_obs.values() if idx not in found]
+    return results,missing
