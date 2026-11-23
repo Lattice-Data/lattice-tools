@@ -431,7 +431,9 @@ def insdc_meta(acc, arrex=False):
 data_repo_bases = {
     'explore.data.humancellatlas.org': 'hca',
     'ncbi.nlm.nih.gov/geo': 'geo',
+    'ncbi.nlm.nih.gov/sra': 'sra',
     'ncbi.nlm.nih.gov/projects/gap': 'dbgap',
+    'dbgap.ncbi.nlm.nih.gov': 'dbgap',
     'ncbi.nlm.nih.gov/bioproject': 'bioproj',
     'ega-archive.org': 'ega',
     'ebi.ac.uk/ena/browser/view': 'ena',
