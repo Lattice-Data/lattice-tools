@@ -158,12 +158,19 @@ def publication_search(search_term):
     return dois
 
 
+def parse_accession(url):
+    url = url.rstrip('/')
+    acc = re.split((r'/|='), url)[-1]
+
+    return acc
+
+
 def validate_raw_ega(url):
     #https://metadata.ega-archive.org/spec
     formats = set()
     raw_data_formats = ['fastq.gz','fq.gz','bam','cram']
 
-    acc = url.split('/')[-1]
+    acc = parse_accession(url)
     obj_type = url.split('/')[-2]
     api_base = 'https://metadata.ega-archive.org'
 
@@ -277,8 +284,7 @@ def validate_raw_hca(url):
 def validate_raw_insdc(url, arrex=False):
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
 
-    url = url.rstrip('/')
-    acc = re.split((r'/|='), url)[-1]
+    acc = parse_accession(url)
     insdc_attrs = insdc_meta(acc, arrex)
     df = pd.DataFrame(insdc_attrs)
     formats = [f for c in df.columns for f in df[c].unique() if 'semantic' in c]
@@ -291,7 +297,7 @@ def validate_raw_dbgap(url):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
-    acc = url.split('/')[-1].split('=')[-1]
+    acc = parse_accession(url)
     errors = None
     if '.' in acc:
         new_acc = acc.split('.')[0]
@@ -321,7 +327,7 @@ def validate_raw_dbgap(url):
 def validate_raw_arrex(url):
     api_base = 'https://www.ebi.ac.uk/biostudies/api/v1'
     raw_data_formats = ['.fastq.gz']
-    acc = url.split('/')[-1]
+    acc = parse_accession(url)
     q_url = f'{api_base}/studies/{acc}/info'
     r = requests.get(q_url).json()
     ftp_link = r['ftpLink']
