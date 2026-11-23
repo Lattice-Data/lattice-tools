@@ -40,10 +40,12 @@ python -m file_extract fastq s3://example-bucket/path/to/ORDER \
 | `--alias-namespace` | Alias namespace (default: the lab name) |
 | `--out-dir` | Directory for the sheet TSVs (default: alongside `--output`) |
 | `-o`, `--output` | Diagnostic TSV (default: `<order>_fastq_info.tsv`) |
-| `--no-require-raw` | Don't require `/raw/` in the S3 key |
+| `--no-require-raw` | Don't require `/raw/` in the S3 key. Cannot be combined with `--resequencing-orders` |
+| `--resequencing-orders` | Re-sequencing order folders, space- and/or comma-separated. See **Re-sequencing orders** below |
+| `--resequencing-contains-new` | `true` or `false` (default `false`), only with `--resequencing-orders`: whether GroupIDs new to the main order get their own outputs (`true`) or are left out (`false`). See **Re-sequencing orders** below |
 | `--workers` | Process pool size (default: min(64, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
-| `--strict` | Exit 1 if any per-file CRC or metadata fetch fails |
+| `--strict` | Exit 1 if any per-file CRC or metadata fetch fails, or if a `--resequencing-orders` entry matches no files |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
@@ -58,6 +60,18 @@ python -m file_extract fastq s3://example-bucket/path/to/ORDER \
 **Diagnostic columns:** `filename`, `s3_uri`, `read`, `lane`, `size_bytes`, `crc64nvme_base64`, `read_count`, `crc_error`, `metadata_error`, `sample_dir`, `set_alias`
 
 **Guardrails:** warns when R1 and R2 file counts differ, when R2 has no R1, when a set's R1 and R2 report different `read_count` (a truncation signal), when a file carries no read designator, and when `--cro-order` does not appear in the S3 prefix. Exits 1 on an alias collision, before any per-file request is spent. Suggests `--no-require-raw` when zero files match.
+
+**Files outside `raw/`:** without `--no-require-raw`, a `.fastq.gz` that would otherwise be a deliverable but has no `/raw/` in its key is left out of every output. The run lists each one in a warning block printed right after the listing, before any per-file request, and repeats a one-line reminder in the final summary:
+
+```
+WARNING: 2 FASTQ file(s) were SKIPPED because they are not in a raw/ folder.
+These files are NOT in any output:
+  s3://example-bucket/path/to/ORDER/GROUP/processed/x_R1_001.fastq.gz
+  s3://example-bucket/path/to/ORDER/GROUP/processed/x_R2_001.fastq.gz
+To include them, re-run with --no-require-raw.
+```
+
+`_sample` and `unmatched` files are never deliverables and are not listed. At most 50 paths are shown, then `... and N more`. It is a warning only: the exit code is unchanged, even under `--strict`.
 
 ### CRAM mode
 
@@ -80,7 +94,7 @@ Takes every flag from FASTQ mode, plus:
 
 **Diagnostic columns:** `filename`, `s3_uri`, `size_bytes`, `crc64nvme_base64`, `read_count`, `crc_error`, `metadata_error`, `sample_dir`, `set_alias`
 
-**Guardrails:** the FASTQ guardrails that apply, plus warnings when only unmatched CRAMs are found (excluded from output) and when `.ucram` files are present.
+**Guardrails:** the FASTQ guardrails that apply, including the **Files outside `raw/`** warning for `.cram` files, plus warnings when only unmatched CRAMs are found (excluded from output) and when `.ucram` files are present. Unmatched CRAMs and `.ucram` files keep their own warnings and are not repeated in the outside-`raw/` block.
 
 ---
 
@@ -134,7 +148,7 @@ Point at an order or library prefix, such as `s3://example-bucket/proj/AN0000000
 
 `sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the order or library directory. `library` remains the folder immediately before `processed/`.
 
-`derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning.
+`derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning. With `--resequencing-orders`, an h5 in the main order's TSV lists the FASTQs from `{GroupID}/raw/` in every order that has its GroupID; see **Re-sequencing orders**.
 
 ```bash
 python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab
@@ -154,7 +168,9 @@ python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 -
 | `--metrics` | Cross-check against sibling `metrics_summary.csv` |
 | `--workers` | Positive thread count (default: 8; 64 with `--no-introspect --no-md5`, when each file is one small request). The S3 connection pool is sized to this count |
 | `--retries` | Attempts per transient S3 error, the first included; at least 1 (default: 5) |
-| `--strict` | Exit 1 if any per-file enrichment fails, the `md5sum` read included |
+| `--resequencing-orders` | Re-sequencing order folders, space- and/or comma-separated. See **Re-sequencing orders** below |
+| `--resequencing-contains-new` | `true` or `false` (default `false`), only with `--resequencing-orders`: whether GroupIDs new to the main order get their own outputs (`true`) or are left out (`false`). See **Re-sequencing orders** below |
+| `--strict` | Exit 1 if any per-file enrichment fails, the `md5sum` read included, or if a `--resequencing-orders` entry matches no files |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
@@ -227,6 +243,86 @@ DB2's RawMatrixFile and ProcessedMatrixFile take an `md5sum`, and raise a `missi
 - **Concurrency:** each worker holds one streaming GET open for a whole file, so the S3 connection pool is sized to `--workers` in both modes.
 - **Ctrl-C** cancels the files not yet started. The streams already in flight finish, since a thread cannot be interrupted.
 - **Before DB2 releases the property:** the info TSV carries `md5sum` whether or not the workbook's matrix-file tab has the column yet. Leave it out of the sheet until the RawMatrixFile and ProcessedMatrixFile schemas accept it.
+
+---
+
+## Re-sequencing orders
+
+An order is sometimes sequenced again under a new CRO order. `fastq`, `cram` and `h5` take those re-sequencing orders with `--resequencing-orders`, beside the main order, and route every re-sequenced file by its **GroupID**. `scale_h5ad` does not take the flag.
+
+```bash
+python -m file_extract fastq s3://czi-novogene/labalpha/ORDER_A \
+  --resequencing-orders s3://czi-novogene/labalpha/ORDER_B,s3://czi-novogene/labalpha/ORDER_C \
+  --resequencing-contains-new true \
+  --lab example-lab --cro-order ORDER_A --is-pilot-order false \
+  --sequencing-platform "Ultima Genomics UG 100"
+```
+
+### Routing
+
+A file's GroupID is the first folder below its order: `ORDER_B/GRP_001/raw/…` has GroupID `GRP_001`. The main order's GroupIDs come from the files it matched.
+
+- **GroupID the main order also has:** the file is **added** to the main order's outputs, next to the main order's own files. Nothing from the main order is replaced or removed.
+- **GroupID new to the main order:** depends on `--resequencing-contains-new`:
+  - **`true`:** the file goes into a separate set of outputs named after the re-sequencing order it came from.
+  - **`false`** (the default): the new GroupIDs are re-sequencing for a separate order, so their files are left out of every output and never fetched. The run counts them per order under `New GroupIDs, NOT written` and prints how many files were left out.
+
+So with `ORDER_A` holding `GRP_001` and `GRP_002`, `ORDER_B` holding `GRP_001` and `GRP_003`, and `ORDER_C` holding only `GRP_002`:
+
+| Output set | Contains |
+|---|---|
+| `ORDER_A_fastq_info.tsv`, `ORDER_A_SequenceFile.tsv`, `ORDER_A_SequenceFileSet.tsv` | All of `ORDER_A`, plus `ORDER_B`'s `GRP_001` files and `ORDER_C`'s `GRP_002` files |
+| `ORDER_B_fastq_info.tsv`, `ORDER_B_SequenceFile.tsv`, `ORDER_B_SequenceFileSet.tsv` | `ORDER_B`'s `GRP_003` files only |
+
+`ORDER_C` gets no output set of its own because it brought no new GroupIDs. The table is for `--resequencing-contains-new true`, as in the example command. With the default `false`, the `ORDER_B` row goes too: its `GRP_003` files are left out, and only the `ORDER_A` outputs are written. `h5` works the same way, with one `<order>_h5_info.tsv` per output set.
+
+### h5: GroupIDs come from folders, one processed/ each
+
+For `h5`, an order's GroupIDs are every folder directly below it, whatever it holds. A main-order GroupID with only `raw/` (no `processed/`) is still the main order's, so the h5 a re-sequencing order made for it is written to the main order's `<order>_h5_info.tsv`.
+
+**`derived_from` spans every order.** A re-processed matrix for a shared GroupID is built from both runs' reads. So for each h5 in the main order's TSV, `derived_from` lists the selected FASTQs from `{GroupID}/raw/` in every order that has that GroupID folder, as one sorted list without duplicates, the same sort a single-order run uses. That holds whichever order the h5 sits in. With `ORDER_A/GRP_001/raw/RUN1_*` and `ORDER_B/GRP_001/{raw/RUN2_*, processed/…}`, the `GRP_001` row lists both the `RUN1` and `RUN2` FASTQs. h5s in a re-sequencing order's own TSV (new GroupIDs) still use only their own `raw/`. If none of the `raw/` folders has a selected FASTQ, the row gets `[]` and one warning naming them.
+
+A GroupID in both the main order and a re-sequencing order must have exactly one `processed/` folder across those orders. If more than one has `{GroupID}/processed/` (whether or not it holds `--target-filename`), the run stops with exit 1 before any per-file request, writes no output, and prints each such GroupID with its `processed/` folders:
+
+```
+error: 1 GroupID(s) in both the main order and a re-sequencing order have more than one processed/ folder; each such GroupID must have exactly one:
+  GroupID GRP_001:
+    s3://czi-novogene/labalpha/ORDER_A/GRP_001/processed/ (main order ORDER_A)
+    s3://czi-novogene/labalpha/ORDER_B/GRP_001/processed/ (re-sequencing order ORDER_B)
+Keep one processed/ folder per GroupID, then re-run.
+```
+
+GroupIDs new to the main order are not checked. To find folders, `h5` lists every key in each order, not only the h5s.
+
+### Rows and columns
+
+- **Sets stay per sequencing run.** A `SequenceFileSet` is still one folder plus one name stem, so a re-sequenced run gets its own set rows; it never fills slots on the original run's rows.
+- **`CRO_order`** on each set row is the order the files were actually sequenced in: a `RUN2` set from `ORDER_B` says `ORDER_B`, even in `ORDER_A`'s sheet. `is_pilot_order` and `sequencing_platform` come from the flags for every set.
+- **`source_order`** is added as the last column of every info TSV, naming the order each file came from. It appears only with `--resequencing-orders`, so single-order outputs are unchanged.
+- **Order IDs** are the last folder of each re-sequencing path, used for `CRO_order` and for the output file names. The main order's ID is `--cro-order` (`fastq`, `cram`) or its last folder (`h5`).
+- **Where files go:** `-o/--output` names only the main order's info TSV. The other sets' files go in `--out-dir` (`fastq`, `cram`) or beside `--output` (`h5`).
+- **One pass:** for `fastq` and `cram`, every output set is checked for alias collisions together and every file is fetched in one pass, so a filename repeated across orders is caught before any per-file request.
+
+### Requirements, checked before any per-file request
+
+- **10x layout only.** Every file in every order must be `{order}/{GroupID}/raw/{file}` (`fastq`, `cram`) or `{order}/{GroupID}/processed/…` (`h5`). Scale and sci deliveries (`{order}/{experiment_id}/raw/{RunID}/{file}`) put an experiment id in that first folder and are refused, as is a file directly in an order folder or a GroupID of `raw`, `processed` or `per_sample_outs` (which means the path given was not the order folder). Exit 1, naming the first paths.
+- **Same bucket** as the main order, and a folder rather than a whole bucket.
+- **No overlap:** a re-sequencing order cannot equal, sit inside, or contain the main order or another re-sequencing order, and no two orders may share an order ID.
+- **Not with `--no-require-raw`**, since routing needs every file under `raw/`.
+- **`--resequencing-contains-new`** takes `true` or `false`, defaults to `false`, and is refused without `--resequencing-orders`.
+
+Problems with the paths themselves exit 2 before any S3 call.
+
+### What the run prints
+
+For each order, the run prints how many files it matched and where they went, as counts only (`1 GroupID(s), 2 file(s)`). GroupID names are not listed. The main order shows its file and GroupID counts. Each re-sequencing order shows its file count, then how many GroupIDs and files were added to the main order, and how many were written to its own outputs or left out.
+
+### Warnings
+
+- A re-sequencing order that matched no files (exit 1 under `--strict`).
+- A re-sequencing order whose GroupIDs are all new, which often means the wrong order was passed.
+- A new GroupID that differs from a main one only by `-`/`_` or case. It is still treated as new, so with `--resequencing-contains-new false` it is left out.
+- The **Files outside `raw/`** block, grouped by order, without the `--no-require-raw` suggestion.
 
 ---
 

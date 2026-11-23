@@ -85,6 +85,9 @@ class SequenceFileRecord:
 
     ``set_stem`` empty means the file carries no parseable read designator, so it
     gets a SequenceFile row but joins no set.
+
+    ``cro_order`` is the order the file was sequenced in. It is set only when a
+    run spans re-sequencing orders; empty means the run's ``--cro-order``.
     """
 
     key: str
@@ -96,6 +99,7 @@ class SequenceFileRecord:
     chunk: str = ""
     crc64nvme_base64: str = ""
     read_count: int | None = None
+    cro_order: str = ""
 
     @property
     def filename(self) -> str:
@@ -137,6 +141,8 @@ class FileSetGroup:
     set_stem: str
     directory: str
     members: tuple[SequenceFileRecord, ...] = field(default_factory=tuple)
+    # The members' shared order; empty means the run's --cro-order.
+    cro_order: str = ""
 
     @property
     def sort_key(self) -> tuple[str, str]:
@@ -287,13 +293,15 @@ def validate_aliases(
     one another's set membership if they were.
     """
     file_alias_keys: dict[str, list[str]] = {}
-    set_alias_groups: dict[str, set[tuple[str, str]]] = {}
+    set_alias_dirs: dict[str, dict[tuple[str, str], str]] = {}
     for record in records:
-        file_alias_keys.setdefault(record.file_alias(namespace), []).append(record.key)
+        file_alias_keys.setdefault(record.file_alias(namespace), []).append(
+            _with_order(record.key, record.cro_order)
+        )
         if record.set_stem:
-            set_alias_groups.setdefault(record.set_alias(namespace), set()).add(
+            set_alias_dirs.setdefault(record.set_alias(namespace), {})[
                 record.group_key
-            )
+            ] = _with_order(record.directory, record.cro_order)
 
     problems = [
         f"{alias} <- {', '.join(sorted(keys))}"
@@ -301,9 +309,9 @@ def validate_aliases(
         if len(keys) > 1
     ]
     problems += [
-        f"{alias} <- {', '.join(sorted(directory for directory, _ in groups))}"
-        for alias, groups in sorted(set_alias_groups.items())
-        if len(groups) > 1
+        f"{alias} <- {', '.join(sorted(dirs.values()))}"
+        for alias, dirs in sorted(set_alias_dirs.items())
+        if len(dirs) > 1
     ]
     if problems:
         shown = problems[:MAX_REPORTED_COLLISIONS]
@@ -314,6 +322,11 @@ def validate_aliases(
             "Alias collisions would produce duplicate Lattice aliases; "
             f"resolve these before submitting:\n  {detail}{suffix}"
         )
+
+
+def _with_order(location: str, cro_order: str) -> str:
+    """Tag a key or folder with its order, when the run spans several."""
+    return f"{location} ({cro_order})" if cro_order else location
 
 
 def group_records(
@@ -338,11 +351,20 @@ def group_records(
     groups: list[FileSetGroup] = []
     for (directory, set_stem), members in buckets.items():
         validate_read_slots(members)
+        orders = {member.cro_order for member in members}
+        if len(orders) > 1:
+            # A set is one folder, and one folder belongs to one order, so this
+            # means the orders overlap -- which order parsing refuses.
+            raise SheetBuildError(
+                f"{set_stem}: one set holds files from several orders "
+                f"({', '.join(sorted(orders))})"
+            )
         groups.append(
             FileSetGroup(
                 set_stem=set_stem,
                 directory=directory,
                 members=tuple(members),
+                cro_order=orders.pop(),
             )
         )
 
@@ -425,7 +447,7 @@ def sequence_file_set_row(
         "lab": lab.path,
         "run_cardinality": run_cardinality_for(m.slot for m in group.members),
         "status": STATUS_CURRENT,
-        "CRO_order": options.cro_order,
+        "CRO_order": group.cro_order or options.cro_order,
         "is_pilot_order": "TRUE" if options.is_pilot_order else "FALSE",
         "sequencing_platform": options.sequencing_platform,
     }
