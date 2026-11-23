@@ -159,7 +159,6 @@ def publication_search(search_term):
 
 
 def parse_accession(url):
-    url = url.rstrip('/')
     acc = re.split((r'/|='), url)[-1]
 
     return acc
@@ -463,6 +462,7 @@ def parse_data_repo_url(url):
 
 
 def detect_sequence_data(url):
+    url = url.rstrip('/')
     resource = parse_data_repo_url(url)
 
     if resource in ['geo','bioproj','ena']:
